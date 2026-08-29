@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "nerv": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "Authorization": "Bearer ${NERV_TOKEN}",
+        "X-NERV-Project": "${NERV_PROJECT}"
+      }
+    }
+  }
+}
