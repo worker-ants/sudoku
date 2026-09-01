@@ -8,3 +8,5 @@ dist/
 .idea/
 .data/
 *.log
+*.tsbuildinfo
+next-env.d.ts

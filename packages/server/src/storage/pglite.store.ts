@@ -7,6 +7,7 @@
  * `DATABASE_URL` 이 있으면 그 서버에 붙는 어댑터로 바꿔 끼우면 된다.
  */
 import { PGlite } from '@electric-sql/pglite';
+import { PLACEMENT_MATCHES } from '@sudoku/core';
 import type {
   AccountRow, InputSummaryRow, MatchResultRow, PuzzleRow, PuzzleSeenRow,
   RatingRow, RecordRow, ResultStore, SeasonPointRow,
@@ -144,7 +145,7 @@ export class PgliteResultStore implements ResultStore {
   async topRatings(limit: number): Promise<(RatingRow & { nickname: string })[]> {
     const r = this.rows<Record<string, unknown>>(await this.db.query(
       `SELECT r.*, a.nickname FROM rating r JOIN account a ON a.account_id=r.account_id
-       WHERE r.ranked_matches >= 5 ORDER BY r.rating DESC LIMIT $1`, [limit]));
+       WHERE r.ranked_matches >= $2 ORDER BY r.rating DESC LIMIT $1`, [limit, PLACEMENT_MATCHES]));
     return r.map((x) => ({
       accountId: x['account_id'] as string, rating: Number(x['rating']),
       rankedMatches: Number(x['ranked_matches']), updatedAtEpochMs: Number(x['updated_at']),

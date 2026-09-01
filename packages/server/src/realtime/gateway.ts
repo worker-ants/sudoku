@@ -208,7 +208,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
-  private pushRoom(room: RoomState): void {
+  /** 룸 전체에 현재 상태를 보낸다 — HTTP 로 멤버십이 바뀐 뒤에도 이 경로를 쓴다 */
+  pushRoom(room: RoomState): void {
     this.toRoom(room.roomId, { t: 'room:state', room: this.rooms.toRoomView(room) });
   }
 

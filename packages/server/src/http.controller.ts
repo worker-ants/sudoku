@@ -85,7 +85,7 @@ export class HttpController {
       const room = await this.rooms.join(acc, b.code);
       const cleared = await this.rooms.reconcileEligibility(room, wasEligible);
       this.gateway.bindRoom(acc.accountId, room.roomId);
-      this.gateway.pushRoomTo(acc.accountId, room);
+      this.gateway.pushRoom(room);            // 이미 있던 사람들에게도 새 명단이 가야 한다
       void this.gateway.pushLobby(true);
       return { ...this.rooms.toRoomView(room), readyCleared: cleared };
     } catch (e) { return fail(e); }
