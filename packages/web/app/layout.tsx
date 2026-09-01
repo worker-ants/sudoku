@@ -17,6 +17,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           React 를 기다리면 흰 화면이 한 번 번쩍인 뒤 다크로 바뀐다.
         */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        {/* 본문은 IBM Plex Sans KR, 숫자·데이터는 Archivo — 역할이 겹치지 않는다 */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap" />
       </head>
       <body>{children}</body>
     </html>

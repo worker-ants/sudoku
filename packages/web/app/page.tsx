@@ -11,6 +11,9 @@ import { Keypad } from './components/Keypad';
 
 type Me = { accountId: string; nickname: string; email: string };
 
+/** 참가자 색 — 진행률 아바타와 협동의 칸 소유 표시가 같은 벌을 쓴다 */
+const AVATAR_COLORS = ['#2a3bb5', '#12795c', '#b26a00', '#8a2f8f', '#0f6b8f', '#a33a3a', '#4a5568', '#1f7a5c'];
+
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [booting, setBooting] = useState(true);
@@ -134,19 +137,21 @@ export default function App() {
   if (!me) return <Auth onDone={setMe} />;
 
   return (
-    <div className="wrap">
-      <header className="row" style={{ justifyContent: 'space-between', marginBottom: 20 }}>
-        <div className="row" style={{ gap: 10 }}>
-          <h1 style={{ fontSize: 22 }}>스도쿠</h1>
-          <span className="badge">{me.nickname}</span>
-        </div>
-        <div className="row">
-          {!room && <button onClick={() => setView(view === 'lobby' ? 'rankings' : 'lobby')}>{view === 'lobby' ? '랭킹' : '로비'}</button>}
-          <Settings />
-          <button onClick={async () => { await api('/api/auth/logout', 'POST'); disconnect(); setMe(null); setRoom(null); }}>로그아웃</button>
+    <>
+      <header className="topbar">
+        <div className="inner">
+          <Wordmark />
+          <div className="row" style={{ gap: 6 }}>
+            {!room && <button className="ghost sm" onClick={() => setView(view === 'lobby' ? 'rankings' : 'lobby')}>{view === 'lobby' ? '랭킹' : '로비'}</button>}
+            <span className="topbar-sep sep" />
+            <span className="badge">{me.nickname}</span>
+            <Settings />
+            <button className="ghost sm" onClick={async () => { await api('/api/auth/logout', 'POST'); disconnect(); setMe(null); setRoom(null); }}>로그아웃</button>
+          </div>
         </div>
       </header>
 
+      <div className="wrap">
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {ended && <Result ended={ended} me={me} onClose={() => setEnded(null)} isHost={room?.members.find((x) => x.accountId === me.accountId)?.isHost ?? false} />}
@@ -157,15 +162,8 @@ export default function App() {
       {room && !match && !ended && <RoomPanel room={room} me={me} chat={chat} say={say} />}
 
       {room && match && (
-        <div className="row" style={{ alignItems: 'flex-start', gap: 24 }}>
+        <div className="play">
           <div className="col">
-            <div className="row" style={{ justifyContent: 'space-between', width: 'min(92vw,468px)' }}>
-              <strong className="num" aria-label="남은 시간">{fmtSec(remainSec)}</strong>
-              <span className="muted">
-                {DIFF_LABEL[match.difficulty]} · {match.mode === 'race' ? '레이스' : '협동'} ·{' '}
-                <span className={match.rankEligible ? 'badge ok' : 'badge no'}>{match.rankEligible ? '랭킹 반영' : '캐주얼'}</span>
-              </span>
-            </div>
             <Board
               givens={match.givens} cells={cells} selected={selected} violations={bad}
               showViolations={match.violationDisplay === 'show'}
@@ -181,25 +179,52 @@ export default function App() {
               onSelect={selectCell}
             />
             <Keypad disabled={locked || selected === null} onKey={(v) => selected !== null && setCell(selected, v)} />
-            <div className="row">
-              <button className="primary"
-                disabled={locked || !isFull(cells) || bad.size > 0}
-                onClick={() => send({ t: 'submit:request' })}>
-                제출
-              </button>
-              {match.hintsAllowed && (
-                <button disabled={locked || isFull(cells) || (hint ? hint.used >= hint.limit : false)}
-                  onClick={() => send({ t: 'hint:request' })}>
-                  힌트 {hint ? `${hint.limit - hint.used}/${hint.limit}` : `${match.mode === 'coop' ? '팀 ' : ''}3회`}
-                </button>
-              )}
-              <button className="danger" onClick={() => { if (confirm('이 판의 결과는 지금 상태로 확정되어 결과와 랭킹에 반영됩니다.\n이 판에는 다시 들어올 수 없습니다.')) send({ t: 'room:leave' }); }}>나가기</button>
-            </div>
-            {!isFull(cells) && <p className="muted">빈칸 {cells.filter((v, i) => !match.givens[i] && !v).length}개</p>}
-            {isFull(cells) && bad.size > 0 && <p className="muted" style={{ color: 'var(--danger)' }}>제출할 수 없습니다 — 같은 줄이나 칸에 같은 숫자가 있습니다</p>}
+            {isFull(cells) && bad.size > 0 && (
+              <p className="muted" style={{ color: 'var(--danger)' }}>
+                제출할 수 없습니다 — 같은 줄이나 칸에 같은 숫자가 있습니다
+              </p>
+            )}
           </div>
 
-          <div className="col" style={{ flex: 1, minWidth: 260 }}>
+          <div className="col">
+            <div className="panel"><div className="bd">
+              {/* 남은 시간이 이 화면에서 가장 큰 숫자다. 1분 미만이면 색이 바뀐다. */}
+              <div className={`clock${remainSec < 60 ? ' low' : ''}`}>
+                <span className="t" aria-label="남은 시간">{fmtSec(remainSec)}</span>
+                <span className="muted">
+                  {DIFF_LABEL[match.difficulty]} · {match.mode === 'race' ? '레이스' : '협동'}
+                </span>
+              </div>
+              <div className="meter"><i style={{ width: `${Math.max(0, Math.min(100, (remainSec / match.limitSec) * 100))}%` }} /></div>
+              <div className="stats">
+                <div className="stat">
+                  <div className="v">{cells.filter((v, i) => !match.givens[i] && !v).length}</div>
+                  <div className="k">남은 칸</div>
+                </div>
+                {match.hintsAllowed && (
+                  <div className="stat">
+                    <div className="v">{hint ? hint.limit - hint.used : 3}</div>
+                    <div className="k">힌트{match.mode === 'coop' ? ' · 팀' : ''}</div>
+                  </div>
+                )}
+                <button className="primary"
+                  disabled={locked || !isFull(cells) || bad.size > 0}
+                  onClick={() => send({ t: 'submit:request' })}>
+                  {match.mode === 'coop' ? '팀 제출' : '제출'}
+                </button>
+              </div>
+              <div className="row" style={{ gap: 6, marginTop: 12 }}>
+                {match.hintsAllowed && (
+                  <button className="sm" disabled={locked || isFull(cells) || (hint ? hint.used >= hint.limit : false)}
+                    onClick={() => send({ t: 'hint:request' })}>힌트</button>
+                )}
+                <button className="danger sm" onClick={() => { if (confirm('이 판의 결과는 지금 상태로 확정되어 결과와 랭킹에 반영됩니다.\n이 판에는 다시 들어올 수 없습니다.')) send({ t: 'room:leave' }); }}>나가기</button>
+                <span className={match.rankEligible ? 'badge rank' : 'badge'} style={{ marginLeft: 'auto' }}>
+                  {match.rankEligible && <i className="dot" />}{match.rankEligible ? '랭킹 반영' : '캐주얼'}
+                </span>
+              </div>
+            </div></div>
+
             <ProgressPanel progress={progress} match={match} me={me} />
             <ChatPanel chat={chat} disabled={match.mode === 'race' && match.rankEligible} />
           </div>
@@ -213,10 +238,21 @@ export default function App() {
             <span className="num">{Math.max(0, Math.ceil((window_.endsAtEpochMs - serverNow) / 1000))}</span>
           </p>
           {window_.isLastSubmit && <p style={{ color: 'var(--danger)', margin: '8px 0 0' }}>마지막 제출입니다. 실패하면 이 판은 완주할 수 없습니다.</p>}
-          <button className="danger" style={{ marginTop: 14, padding: '12px 28px', fontSize: 16 }}
+          <button className="danger big" style={{ marginTop: 14 }}
             onClick={() => send({ t: 'submit:cancel' })}>취소</button>
         </div>
       )}
+      </div>
+    </>
+  );
+}
+
+/** 3×3 박스에서 대각선 셋만 강조색 — 보드가 곧 로고다 */
+function Wordmark() {
+  return (
+    <div className="brand">
+      <span className="mk" aria-hidden>{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</span>
+      SUDOKU
     </div>
   );
 }
@@ -324,34 +360,57 @@ function Lobby({ lobby, onEnter, say }: { lobby: LobbyRoomView[]; onEnter: (r: R
     if (r.ok) onEnter(r.data); else say(r.data?.message ?? '들어가지 못했습니다');
   };
   return (
-    <div className="col">
-      <div className="row">
-        <button className="primary" onClick={create}>룸 만들기</button>
-        <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="코드 6자리" maxLength={6} style={{ width: 140 }} />
-        <button onClick={() => join(code)} disabled={code.length !== 6}>코드로 참가</button>
+    <div className="col" style={{ gap: 18 }}>
+      <div className="pagehead">
+        <div>
+          <h1>공개 룸</h1>
+          <p className="muted">지금 열려 있는 방 <span className="num">{lobby.length}</span>개</p>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="코드 6자리" maxLength={6} style={{ width: 132 }} />
+          <button onClick={() => join(code)} disabled={code.length !== 6}>참가</button>
+          <button className="primary" onClick={create}>룸 만들기</button>
+        </div>
       </div>
-      <div className="card">
-        <h2>공개 룸</h2>
-        {lobby.length === 0 && <p className="muted">아직 열린 룸이 없습니다. 하나 만들어 보세요.</p>}
-        {lobby.length > 0 && (
-          <table>
-            <thead><tr><th>이름</th><th>모드</th><th>난이도</th><th>인원</th><th>랭크</th><th>상태</th><th /></tr></thead>
-            <tbody>
-              {lobby.map((r) => (
-                <tr key={r.roomId}>
-                  <td>{r.name}<div className="muted">{r.hostNickname}</div></td>
-                  <td>{r.mode === 'race' ? '레이스' : '협동'}</td>
-                  <td>{DIFF_LABEL[r.difficulty]}</td>
-                  <td className="num">{r.count}/{r.capacity}</td>
-                  <td><span className={r.rankEligible ? 'badge ok' : 'badge no'}>{r.rankEligible ? '반영' : '캐주얼'}</span></td>
-                  <td>{r.phase === 'playing' ? <span className="badge">진행 중 {r.endsInSec !== null ? fmtSec(r.endsInSec) : ''}</span> : r.phase === 'result' ? '결과' : '대기'}</td>
-                  <td><button disabled={r.phase === 'playing' || r.count >= r.capacity} onClick={() => join(r.code)}>참가</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+
+      {lobby.length === 0 && <div className="empty">아직 열린 룸이 없습니다.<br />하나 만들어 보세요.</div>}
+
+      {lobby.length > 0 && (
+        <div className="rooms">
+          {lobby.map((r) => {
+            const full = r.count >= r.capacity;
+            const playing = r.phase === 'playing';
+            return (
+              <div key={r.roomId} className={`room${playing ? ' busy' : ''}`}>
+                <div className="t">
+                  <div>
+                    <div className="nm">{r.name}</div>
+                    <div className="host">호스트 {r.hostNickname}</div>
+                  </div>
+                  {playing
+                    ? <span className="badge warn">진행 중{r.endsInSec !== null ? ` ${fmtSec(r.endsInSec)}` : ''}</span>
+                    : r.rankEligible
+                      ? <span className="badge rank"><i className="dot" />랭킹</span>
+                      : <span className="badge">캐주얼</span>}
+                </div>
+                <div className="facts">
+                  <span>{r.mode === 'race' ? '레이스' : '협동'}</span>
+                  <span>{DIFF_LABEL[r.difficulty]}</span>
+                  <span><b className="num">{Math.round(r.limitSec / 60)}</b>분</span>
+                </div>
+                <div className="foot">
+                  <span className="num" style={{ fontSize: 13 }}>
+                    {r.count} <span style={{ color: 'var(--ink3)' }}>/ {r.capacity}</span>
+                  </span>
+                  <button className={playing || full ? 'sm' : 'sm primary'} disabled={playing || full}
+                    onClick={() => join(r.code)}>참가</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -371,9 +430,9 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
           </div>
           <div style={{ marginTop: 10 }}>
             {room.eligibility.eligible
-              ? <span className="badge ok">이 판은 랭킹에 반영됩니다</span>
+              ? <span className="badge rank"><i className="dot" />이 판은 랭킹에 반영됩니다</span>
               : (<div>
-                  <span className="badge no">이 판은 랭킹에 반영되지 않습니다</span>
+                  <span className="badge">이 판은 랭킹에 반영되지 않습니다</span>
                   <ul className="muted" style={{ margin: '8px 0 0 18px' }}>
                     {room.eligibility.reasons.map((x) => <li key={x}>{x}</li>)}
                   </ul>
@@ -426,7 +485,7 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
           <h2>참가자 {room.members.length}/{r.capacity}</h2>
           {room.members.map((m) => (
             <div key={m.accountId} className="progress-row">
-              <span>{m.nickname} {m.isHost && <span className="badge">호스트</span>} {!m.connected && <span className="badge no">연결 끊김</span>}</span>
+              <span>{m.nickname} {m.isHost && <span className="badge">호스트</span>} {!m.connected && <span className="badge warn">연결 끊김</span>}</span>
               <span>{m.isHost ? '—' : m.ready ? <span className="badge ok">준비완료</span> : <span className="badge">미준비</span>}
                 {isHost && !m.isHost && <button className="danger" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
                   onClick={() => send({ t: 'room:kick', accountId: m.accountId })}>내보내기</button>}
@@ -451,34 +510,57 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
 
 // ── 진행률 · 채팅 · 랭킹 ─────────────────────────────────────────────────────
 function ProgressPanel({ progress, match, me }: { progress: Progress | null; match: MatchStarted; me: Me }) {
-  const nick = (id: string) => match.participants.find((p) => p.accountId === id)?.nickname ?? id;
+  const of = (id: string) => match.participants.find((p) => p.accountId === id);
+  const nick = (id: string) => of(id)?.nickname ?? id;
+  const blanks = match.givens.filter((v) => !v).length || 1;
+  /* 아바타 색은 참가자 색인을 따른다 — 협동의 칸 소유 표시와 같은 색이라 눈이 이어진다 */
+  const hue = (id: string) => AVATAR_COLORS[(of(id)?.colorIndex ?? 0) % AVATAR_COLORS.length]!;
+
   return (
-    <div className="card">
-      <h2>진행률</h2>
-      {!progress && <p className="muted">곧 갱신됩니다…</p>}
-      {progress?.kind === 'race' && progress.participants.map((p) => (
-        <div key={p.accountId} className="progress-row">
-          <span>{nick(p.accountId)}{p.accountId === me.accountId ? ' (나)' : ''}
-            {p.left && <span className="badge no" style={{ marginLeft: 6 }}>이탈</span>}
-            {!p.connected && !p.left && <span className="badge" style={{ marginLeft: 6 }}>연결 끊김</span>}</span>
-          <span className="num">{p.finished ? <span className="badge ok">완주</span> : `${p.filled}칸`}</span>
-        </div>
-      ))}
-      {progress?.kind === 'coop' && (
-        <>
-          <div className="progress-row"><span>팀</span>
-            <span className="num">{progress.team.finished ? <span className="badge ok">완주</span> : `${progress.team.filled}칸`}</span></div>
-          {progress.members.map((m) => (
-            <div key={m.accountId} className="progress-row">
-              <span>{nick(m.accountId)}{m.accountId === me.accountId ? ' (나)' : ''}</span>
-              <span>{m.left ? <span className="badge no">이탈</span> : m.connected ? '' : <span className="badge">연결 끊김</span>}</span>
+    <div className="panel">
+      <div className="hd"><h2>진행률</h2><span className="muted">0.5초마다</span></div>
+      <div className="bd" style={{ padding: '4px 16px 12px' }}>
+        {!progress && <p className="muted" style={{ padding: '8px 0' }}>곧 갱신됩니다…</p>}
+
+        {progress?.kind === 'race' && progress.participants.map((p) => (
+          <div key={p.accountId} className="progress-row">
+            <span className="avatar" style={{ background: hue(p.accountId) }} aria-hidden>{nick(p.accountId).slice(0, 1)}</span>
+            <span className="nm">
+              {nick(p.accountId)}{p.accountId === me.accountId && <span className="muted"> (나)</span>}
+            </span>
+            {p.left ? <span className="badge no">이탈</span>
+              : !p.connected ? <span className="badge warn">연결 끊김</span>
+              : p.finished ? <span className="badge ok">완주</span>
+              : <>
+                  <span className="bar"><i style={{ width: `${Math.min(100, (p.filled / blanks) * 100)}%` }} /></span>
+                  <span className="num" style={{ fontSize: 12.5 }}>{p.filled}칸</span>
+                </>}
+          </div>
+        ))}
+
+        {progress?.kind === 'coop' && (
+          <>
+            <div className="progress-row">
+              <span className="nm"><strong>팀</strong></span>
+              {progress.team.finished ? <span className="badge ok">완주</span> : <>
+                <span className="bar"><i style={{ width: `${Math.min(100, (progress.team.filled / blanks) * 100)}%` }} /></span>
+                <span className="num" style={{ fontSize: 12.5 }}>{progress.team.filled}칸</span>
+              </>}
             </div>
-          ))}
-        </>
-      )}
-      <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
-        미완주자끼리의 위치는 <strong>채운 칸 수 기준, 잠정</strong>입니다 — 최종 순위는 정답 칸 수로 갈립니다.
-      </p>
+            {progress.members.map((m) => (
+              <div key={m.accountId} className="progress-row">
+                <span className="avatar" style={{ background: hue(m.accountId) }} aria-hidden>{nick(m.accountId).slice(0, 1)}</span>
+                <span className="nm">{nick(m.accountId)}{m.accountId === me.accountId && <span className="muted"> (나)</span>}</span>
+                {m.left ? <span className="badge no">이탈</span> : !m.connected ? <span className="badge warn">연결 끊김</span> : null}
+              </div>
+            ))}
+          </>
+        )}
+
+        <p className="muted" style={{ margin: '10px 0 0', lineHeight: 1.5 }}>
+          미완주자끼리의 위치는 <strong>채운 칸 수 기준, 잠정</strong>입니다 — 최종 순위는 정답 칸 수로 갈립니다.
+        </p>
+      </div>
     </div>
   );
 }
@@ -570,7 +652,7 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>결과 — {reason}</h2>
         <div className="row">
-          <span className={ended.rankEligible ? 'badge ok' : 'badge no'}>{ended.rankEligible ? '랭킹 반영' : '캐주얼'}</span>
+          <span className={ended.rankEligible ? 'badge rank' : 'badge'}>{ended.rankEligible && <i className="dot" />}{ended.rankEligible ? '랭킹 반영' : '캐주얼'}</span>
           {isHost && <button onClick={() => { send({ t: 'room:rematch' }); onClose(); }}>다시 하기</button>}
           <button onClick={onClose}>닫기</button>
         </div>
@@ -580,23 +662,27 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
         <thead>
           <tr>
             {ended.mode === 'race' && <th>순위</th>}
-            <th>이름</th><th>완주</th><th>조정 완주 시각</th><th>정답 칸</th>
-            {ended.mode === 'race' && <th>포인트</th>}
-            {ended.mode === 'race' && <th>레이팅</th>}
-            {ended.mode === 'coop' && <th>기여</th>}
+            <th>이름</th><th>완주</th><th className="n">조정 완주 시각</th><th className="n">정답 칸</th>
+            {ended.mode === 'race' && <th className="n">포인트</th>}
+            {ended.mode === 'race' && <th className="n">레이팅</th>}
+            {ended.mode === 'coop' && <th className="n">기여</th>}
           </tr>
         </thead>
         <tbody>
           {ended.participants.map((p) => (
-            <tr key={p.accountId} style={p.accountId === me.accountId ? { fontWeight: 600 } : undefined}>
-              {ended.mode === 'race' && <td className="num">{p.rank}</td>}
+            <tr key={p.accountId} className={p.accountId === me.accountId ? 'me' : undefined}>
+              {ended.mode === 'race' && <td><span className={`rk${p.rank === 1 ? ' first' : ''}`}>{p.rank}</span></td>}
               <td>{p.nickname}{p.left && <span className="badge no" style={{ marginLeft: 6 }}>{p.kicked ? '강퇴됨' : '이탈'}</span>}</td>
-              <td>{p.finished ? '✓' : '—'}</td>
-              <td className="num">{p.adjustedFinishSec !== null ? fmtSec(p.adjustedFinishSec) : '—'}</td>
-              <td className="num">{p.correctCells}</td>
-              {ended.mode === 'race' && <td className="num">{p.rankPoint}</td>}
-              {ended.mode === 'race' && <td className="num">{p.ratingDelta === null ? '—' : (p.ratingDelta > 0 ? `+${p.ratingDelta}` : p.ratingDelta)}</td>}
-              {ended.mode === 'coop' && <td className="num">{p.contribution}/{p.requiredContribution} {p.gatePassed ? '✓' : <span className="badge no">미달</span>}</td>}
+              <td>{p.finished ? <span style={{ color: 'var(--good)' }}>✓</span> : <span style={{ color: 'var(--ink3)' }}>—</span>}</td>
+              <td className="n">{p.adjustedFinishSec !== null ? fmtSec(p.adjustedFinishSec) : '—'}</td>
+              <td className="n">{p.correctCells}</td>
+              {ended.mode === 'race' && <td className="n">{p.rankPoint}</td>}
+              {ended.mode === 'race' && (
+                <td className="n" style={{ color: p.ratingDelta ? (p.ratingDelta > 0 ? 'var(--good)' : 'var(--danger)') : 'var(--ink3)' }}>
+                  {p.ratingDelta === null ? '—' : (p.ratingDelta > 0 ? `+${p.ratingDelta}` : p.ratingDelta)}
+                </td>
+              )}
+              {ended.mode === 'coop' && <td className="n">{p.contribution}/{p.requiredContribution} {p.gatePassed ? '✓' : <span className="badge no">미달</span>}</td>}
             </tr>
           ))}
         </tbody>

@@ -1,95 +1,217 @@
-:root{
-  --bg:#f3f4f1; --surface:#fbfcfa; --sunk:#e9ece8;
-  --ink:#1a1e1c; --ink2:#4c534f; --ink3:#7d857f;
-  --rule:#d5dad3; --rule-strong:#9aa39c;
-  --accent:#2f6f5e; --accent-soft:#e2ece8;
-  --danger:#9a4b2e; --danger-soft:#f1e5df;
-  --given:#1a1e1c; --entered:#2f6f5e; --violation:#9a4b2e;
-  --hint:#c9a227; --hint-soft:#f6efd6;
-}
 /*
+ * 스도쿠 UI — 신문 퍼즐면의 격자, 스코어보드의 시계
+ *
+ * 세 규칙만 지키면 나머지는 따라온다.
+ *   ① 격자가 레이아웃 규칙이다 — 1px 헤어라인으로 안을 나누고, 2px 룰로 구역을 묶는다.
+ *      보드 안에서도 칸 사이는 헤어라인, 3×3 박스 사이는 룰이다. 라운드는 최대 3px.
+ *   ② 색은 한 가지 일만 한다 — 강조(--accent)는 "지금 내 것"에만. 상태는 good·warn·bad 가 맡는다.
+ *   ③ 숫자에 전용 서체를 준다 — 보드·타이머·순위·포인트는 Archivo, 본문은 IBM Plex Sans KR.
+ *
  * 테마는 세 상태다 (ADR-STACK §4.5 · S5).
- *   속성 없음        = system — 아래 미디어 쿼리가 일한다
+ *   속성 없음          = system — 아래 미디어 쿼리가 일한다
  *   [data-theme=light] = 명시적 라이트 — OS 가 다크여도 이긴다
  *   [data-theme=dark]  = 명시적 다크 — OS 가 라이트여도 이긴다
  * 색은 반드시 이 세 자리에서만 정의한다. 미디어 쿼리 안에만 있는 색은
  * 속성 없는 기본 상태에서 비어 화면이 깨진다.
  */
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --sunk:#eef1f5;
+  --ink:#101420; --ink2:#545b6b; --ink3:#8b93a3;
+  --rule:#e3e7ee;            /* 헤어라인 1px */
+  --rule-strong:#c4cbd8;     /* 박스 룰 2px · 컨트롤 테두리 */
+  --accent:#2a3bb5; --accent-soft:#eef0fb; --accent-ink:#ffffff;
+  --good:#12795c; --good-soft:#e4f2ee;
+  --warn:#b26a00; --warn-soft:#fbf0dd;
+  --danger:#c0332b; --danger-soft:#fbe9e7;
+  --given:#101420; --entered:#2a3bb5; --violation:#c0332b;
+  --hint:#b26a00; --hint-soft:#fbf0dd;
+  --shadow:0 10px 30px -18px rgba(16,20,32,.55);
+
+  --f-text:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-data:"Archivo",ui-sans-serif,system-ui,sans-serif;
+}
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#131715; --surface:#1a1f1c; --sunk:#0f1311;
-    --ink:#e9ece8; --ink2:#a9b2ac; --ink3:#78817b;
-    --rule:#2c332e; --rule-strong:#4d574f;
-    --accent:#74c1a7; --accent-soft:#1c2a25;
-    --danger:#d98a68; --danger-soft:#2b1f1a;
-    --given:#e9ece8; --entered:#74c1a7; --violation:#d98a68;
-    --hint:#d8bd5e; --hint-soft:#2a2417;
+    --bg:#0c0f16; --surface:#141924; --sunk:#10141d;
+    --ink:#e7eaf2; --ink2:#a3abbd; --ink3:#727b8e;
+    --rule:#222836; --rule-strong:#39425a;
+    --accent:#8fa0ff; --accent-soft:#1b2138; --accent-ink:#0c0f16;
+    --good:#5cc7a4; --good-soft:#12261f;
+    --warn:#e0a444; --warn-soft:#291f0f;
+    --danger:#f08a80; --danger-soft:#2b1614;
+    --given:#e7eaf2; --entered:#8fa0ff; --violation:#f08a80;
+    --hint:#e0a444; --hint-soft:#291f0f;
+    --shadow:0 10px 30px -18px rgba(0,0,0,.8);
   }
 }
 :root[data-theme="dark"]{
-    --bg:#131715; --surface:#1a1f1c; --sunk:#0f1311;
-    --ink:#e9ece8; --ink2:#a9b2ac; --ink3:#78817b;
-    --rule:#2c332e; --rule-strong:#4d574f;
-    --accent:#74c1a7; --accent-soft:#1c2a25;
-    --danger:#d98a68; --danger-soft:#2b1f1a;
-    --given:#e9ece8; --entered:#74c1a7; --violation:#d98a68;
-    --hint:#d8bd5e; --hint-soft:#2a2417;
+  --bg:#0c0f16; --surface:#141924; --sunk:#10141d;
+  --ink:#e7eaf2; --ink2:#a3abbd; --ink3:#727b8e;
+  --rule:#222836; --rule-strong:#39425a;
+  --accent:#8fa0ff; --accent-soft:#1b2138; --accent-ink:#0c0f16;
+  --good:#5cc7a4; --good-soft:#12261f;
+  --warn:#e0a444; --warn-soft:#291f0f;
+  --danger:#f08a80; --danger-soft:#2b1614;
+  --given:#e7eaf2; --entered:#8fa0ff; --violation:#f08a80;
+  --hint:#e0a444; --hint-soft:#291f0f;
+  --shadow:0 10px 30px -18px rgba(0,0,0,.8);
 }
+
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
   background:var(--bg); color:var(--ink); min-height:100vh;
-  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
-  line-height:1.6; -webkit-font-smoothing:antialiased;
+  font-family:var(--f-text); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
 }
-button{font:inherit;cursor:pointer;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);
-  border-radius:6px;padding:8px 14px}
+
+/* ── 컨트롤 ─────────────────────────────────────────────────────────────── */
+button{font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;
+  border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);
+  border-radius:3px;padding:8px 15px;line-height:1.2}
 button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
-button:disabled{opacity:.45;cursor:not-allowed}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button.primary:hover:not(:disabled){filter:brightness(1.08);color:#fff}
-button.danger{color:var(--danger);border-color:var(--danger)}
-input,select{font:inherit;padding:8px 10px;border:1px solid var(--rule-strong);border-radius:6px;
-  background:var(--surface);color:var(--ink)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:hover:not(:disabled){filter:brightness(1.1);color:var(--accent-ink)}
+button.ghost{border-color:transparent;background:transparent;color:var(--ink2)}
+button.ghost:hover:not(:disabled){color:var(--accent);border-color:transparent}
+button.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+button.danger:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
+button.big{padding:12px 22px;font-size:15px;font-weight:600}
+button.sm{padding:5px 10px;font-size:12.5px}
+input,select{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--rule-strong);
+  border-radius:3px;background:var(--surface);color:var(--ink)}
+input::placeholder{color:var(--ink3)}
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 a{color:var(--accent)}
-.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 64px}
-.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.col{display:flex;flex-direction:column;gap:12px}
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:18px}
-.muted{color:var(--ink3);font-size:14px}
-.badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--sunk);color:var(--ink2)}
-.badge.ok{background:var(--accent-soft);color:var(--accent)}
-.badge.no{background:var(--danger-soft);color:var(--danger)}
-h1{font-size:28px;margin:0 0 4px} h2{font-size:19px;margin:0 0 10px} h3{font-size:15px;margin:0 0 8px}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule)}
-th{font-size:12px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em}
-.num{font-variant-numeric:tabular-nums}
 
-/* 보드 */
-.board{display:grid;grid-template-columns:repeat(9,1fr);gap:0;border:2px solid var(--rule-strong);
-  border-radius:6px;overflow:hidden;background:var(--rule-strong);width:min(92vw,468px);aspect-ratio:1}
-.cell{position:relative;background:var(--surface);border:0;border-radius:0;display:flex;align-items:center;
-  justify-content:center;font-size:clamp(16px,4.4vw,24px);font-weight:500;color:var(--entered);
+/* ── 셸과 위계 ──────────────────────────────────────────────────────────── */
+.topbar{position:sticky;top:0;z-index:30;background:var(--surface);
+  border-bottom:1px solid var(--rule);height:56px;display:flex;align-items:center}
+.topbar .inner{max-width:1200px;margin:0 auto;padding:0 22px;width:100%;
+  display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{font-family:var(--f-data);font-weight:700;font-size:16px;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:9px;color:var(--ink)}
+.brand .mk{width:20px;height:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:1.5px;flex:none}
+.brand .mk i{background:var(--rule-strong);display:block;border-radius:.5px}
+.brand .mk i:nth-child(1),.brand .mk i:nth-child(5),.brand .mk i:nth-child(9){background:var(--accent)}
+.topbar .sep{width:1px;height:18px;background:var(--rule)}
+
+.wrap{max-width:1200px;margin:0 auto;padding:26px 22px 72px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:12px}
+
+h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0 0 2px}
+h2{font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px}
+h3{font-size:14px;font-weight:600;margin:0 0 8px}
+.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}
+.muted{color:var(--ink3);font-size:12.5px}
+.num{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-weight:500}
+
+/* 패널 — 그림자 대신 헤어라인 */
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:0;padding:16px 18px}
+.panel{background:var(--surface);border:1px solid var(--rule)}
+.panel > .hd{padding:12px 16px;border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.panel > .hd h2,.panel > .hd h3{margin:0;font-size:13px;font-weight:600}
+.panel > .bd{padding:14px 16px}
+
+/* ── 상태 어휘 — 성격이 다르면 색도 다르다 ─────────────────────────────── */
+.badge{font-family:var(--f-data);display:inline-flex;align-items:center;gap:5px;
+  font-size:11px;font-weight:600;letter-spacing:.04em;padding:3px 9px;border-radius:999px;
+  background:var(--sunk);color:var(--ink2)}
+.badge.rank{background:var(--accent-soft);color:var(--accent)}
+.badge.ok{background:var(--good-soft);color:var(--good)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.no{background:var(--danger-soft);color:var(--danger)}
+.badge .dot{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}
+
+/* ── 표 ─────────────────────────────────────────────────────────────────── */
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-family:var(--f-data);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600;padding:0 12px 8px;border-bottom:1px solid var(--rule)}
+td{padding:11px 12px;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-family:var(--f-data);font-variant-numeric:tabular-nums}
+tr.me td{background:var(--accent-soft)}
+.rk{font-family:var(--f-data);font-weight:700;font-size:15px}
+.rk.first{color:var(--accent)}
+
+/* ── 보드 ───────────────────────────────────────────────────────────────── */
+/* 칸 사이는 헤어라인(--rule), 3×3 박스 사이는 룰(--rule-strong). 두 굵기가 실제로 갈린다. */
+.board{display:grid;grid-template-columns:repeat(9,1fr);gap:1px;background:var(--rule);
+  border:2px solid var(--rule-strong);border-radius:0;width:min(92vw,560px);aspect-ratio:1}
+.cell{position:relative;background:var(--surface);border:0;border-radius:0;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--f-data);font-size:clamp(16px,4.4vw,26px);font-weight:500;color:var(--entered);
   padding:0;margin:0;transition:background .1s}
-.cell.given{color:var(--given);font-weight:700;background:var(--sunk)}
-.cell.sel{background:var(--accent-soft)}
-.cell.peer{background:color-mix(in srgb,var(--accent-soft) 45%,var(--surface))}
+/* 단서는 배경이 아니라 잉크와 굵기로 구분한다 — 인쇄된 퍼즐처럼 */
+.cell.given{color:var(--given);font-weight:600}
+.cell.peer{background:color-mix(in srgb,var(--accent-soft) 55%,var(--surface))}
+.cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
 .cell.bad{color:var(--violation);background:var(--danger-soft)}
-.cell.hint{box-shadow:inset 0 0 0 3px var(--hint);background:var(--hint-soft)}
+.cell.hint{box-shadow:inset 0 0 0 2px var(--hint);background:var(--hint-soft)}
 .cell.r3{border-top:2px solid var(--rule-strong)}
 .cell.c3{border-left:2px solid var(--rule-strong)}
 .cell:hover:not(:disabled){border-color:transparent;color:var(--entered)}
-.cell .owner{position:absolute;left:2px;top:2px;width:6px;height:6px;border-radius:50%}
+.cell .owner{position:absolute;left:3px;top:3px;width:5px;height:5px;border-radius:50%}
 .cell .cursor{position:absolute;right:2px;bottom:2px;font-size:9px;line-height:1}
-.keypad{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;width:min(92vw,468px)}
-.keypad button{padding:14px 0;font-size:18px}
-.progress-row{display:flex;justify-content:space-between;gap:10px;padding:7px 10px;border-bottom:1px solid var(--rule);font-size:14px}
-.banner{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:50;background:var(--surface);
-  border:2px solid var(--accent);border-radius:12px;padding:22px 26px;text-align:center;min-width:320px;
-  box-shadow:0 18px 50px -20px rgba(0,0,0,.5)}
+.keypad{display:grid;grid-template-columns:repeat(9,1fr);gap:6px;width:min(92vw,560px)}
+.keypad button{padding:12px 0;font-size:16px;font-family:var(--f-data);font-weight:500}
+.keypad button.wide{grid-column:span 9;font-family:var(--f-text);font-size:13.5px}
+
+/* ── 판 화면 — 보드가 주인, 오른쪽 레일 ────────────────────────────────── */
+.play{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:26px;align-items:start}
+@media (max-width:900px){.play{grid-template-columns:minmax(0,1fr)}}
+.clock{display:flex;align-items:baseline;gap:10px}
+.clock .t{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:38px;font-weight:600;
+  letter-spacing:-.02em;line-height:1}
+.clock.low .t{color:var(--danger)}
+.meter{height:3px;background:var(--sunk);margin-top:10px;position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--accent);display:block;transition:width .5s linear}
+.clock.low + .meter i{background:var(--danger)}
+.stats{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px}
+.stat .v{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:17px;font-weight:600;line-height:1.2}
+.stat .k{font-size:11.5px;color:var(--ink3)}
+
+/* ── 진행률 ─────────────────────────────────────────────────────────────── */
+.progress-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule);font-size:13.5px}
+.progress-row:last-child{border-bottom:0}
+.progress-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress-row .bar{width:70px;height:4px;background:var(--sunk);position:relative;flex:none}
+.progress-row .bar i{position:absolute;inset:0 auto 0 0;background:var(--accent);display:block}
+.avatar{width:22px;height:22px;border-radius:3px;display:grid;place-items:center;flex:none;
+  font-family:var(--f-data);font-size:10px;font-weight:700;color:#fff}
+
+/* ── 로비 카드 ──────────────────────────────────────────────────────────── */
+.rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.room{border:1px solid var(--rule);background:var(--surface);padding:16px;display:flex;flex-direction:column;gap:12px}
+.room .t{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.room .nm{font-weight:600;font-size:15px}
+.room .host{font-size:12px;color:var(--ink3)}
+.room .facts{display:flex;gap:14px;font-size:12.5px;color:var(--ink2)}
+.room .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border-top:1px solid var(--rule);padding-top:11px}
+.room.busy{opacity:.62}
+.empty{border:1px dashed var(--rule-strong);padding:22px;text-align:center;color:var(--ink3);
+  font-size:13px;line-height:1.6}
+
+/* ── 룰 격자 ────────────────────────────────────────────────────────────── */
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media (max-width:720px){.rules{grid-template-columns:1fr}}
+.rule-cell{background:var(--surface);padding:13px 15px;display:flex;flex-direction:column;gap:7px}
+.rule-cell > .k{font-size:11.5px;color:var(--ink3)}
+
+/* ── 취소 창 · 토스트 ───────────────────────────────────────────────────── */
+.banner{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;background:var(--surface);
+  border:1px solid var(--rule-strong);border-top:3px solid var(--warn);border-radius:0;
+  padding:20px 26px;text-align:center;min-width:340px;box-shadow:var(--shadow)}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;background:var(--ink);
-  color:var(--bg);padding:10px 16px;border-radius:8px;font-size:14px;max-width:80vw}
-.chat{height:200px;overflow-y:auto;border:1px solid var(--rule);border-radius:6px;padding:8px;background:var(--sunk);font-size:14px}
-.chat .sys{color:var(--ink3);font-style:italic}
+  color:var(--bg);padding:10px 16px;border-radius:3px;font-size:13px;max-width:80vw}
+
+/* ── 채팅 ───────────────────────────────────────────────────────────────── */
+.chat{height:200px;overflow-y:auto;border:1px solid var(--rule);border-radius:0;padding:10px;
+  background:var(--sunk);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.chat .sys{color:var(--ink3)}
+.chat .lock{border:1px dashed var(--rule-strong);padding:12px;text-align:center;color:var(--ink3);
+  font-size:12.5px;line-height:1.5}
