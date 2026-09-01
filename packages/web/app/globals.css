@@ -7,6 +7,14 @@
   --given:#1a1e1c; --entered:#2f6f5e; --violation:#9a4b2e;
   --hint:#c9a227; --hint-soft:#f6efd6;
 }
+/*
+ * 테마는 세 상태다 (ADR-STACK §4.5 · S5).
+ *   속성 없음        = system — 아래 미디어 쿼리가 일한다
+ *   [data-theme=light] = 명시적 라이트 — OS 가 다크여도 이긴다
+ *   [data-theme=dark]  = 명시적 다크 — OS 가 라이트여도 이긴다
+ * 색은 반드시 이 세 자리에서만 정의한다. 미디어 쿼리 안에만 있는 색은
+ * 속성 없는 기본 상태에서 비어 화면이 깨진다.
+ */
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#131715; --surface:#1a1f1c; --sunk:#0f1311;
@@ -17,6 +25,15 @@
     --given:#e9ece8; --entered:#74c1a7; --violation:#d98a68;
     --hint:#d8bd5e; --hint-soft:#2a2417;
   }
+}
+:root[data-theme="dark"]{
+    --bg:#131715; --surface:#1a1f1c; --sunk:#0f1311;
+    --ink:#e9ece8; --ink2:#a9b2ac; --ink3:#78817b;
+    --rule:#2c332e; --rule-strong:#4d574f;
+    --accent:#74c1a7; --accent-soft:#1c2a25;
+    --danger:#d98a68; --danger-soft:#2b1f1a;
+    --given:#e9ece8; --entered:#74c1a7; --violation:#d98a68;
+    --hint:#d8bd5e; --hint-soft:#2a2417;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}

@@ -5,6 +5,7 @@ import type {
 } from '@sudoku/contracts';
 import { api, connect, disconnect, send } from '../lib/net';
 import { DIFF_LABEL, fmtSec, isFull, peersOf, violations } from '../lib/sudoku';
+import { readTheme, saveTheme, THEMES, THEME_LABEL, type Theme } from '../lib/theme';
 import { Board } from './components/Board';
 import { Keypad } from './components/Keypad';
 
@@ -141,6 +142,7 @@ export default function App() {
         </div>
         <div className="row">
           {!room && <button onClick={() => setView(view === 'lobby' ? 'rankings' : 'lobby')}>{view === 'lobby' ? '랭킹' : '로비'}</button>}
+          <Settings />
           <button onClick={async () => { await api('/api/auth/logout', 'POST'); disconnect(); setMe(null); setRoom(null); }}>로그아웃</button>
         </div>
       </header>
@@ -219,6 +221,48 @@ export default function App() {
   );
 }
 
+// ── 개인 설정 ───────────────────────────────────────────────────────────────
+/**
+ * v1 의 개인 설정 항목은 테마 하나뿐이라 페이지를 세우지 않고 헤더에서 연다
+ * (ADR-STACK §4.5 · S5). 로그인 전에도 보이는 이유는 테마가 로그인 화면에도
+ * 적용되기 때문이다 — 그래서 저장 위치가 계정이 아니라 브라우저다.
+ */
+function Settings() {
+  const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>('system');
+  // 서버 렌더 결과와 어긋나지 않도록 마운트 후에 읽는다
+  useEffect(() => { setTheme(readTheme()); }, []);
+
+  const pick = (t: Theme) => { setTheme(t); saveTheme(t); };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open}>설정</button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div className="card" role="dialog" aria-label="개인 설정"
+            style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 41, minWidth: 236, padding: 14 }}>
+            <h3 style={{ marginBottom: 10 }}>개인 설정</h3>
+            <p className="muted" style={{ margin: '0 0 6px' }}>테마</p>
+            <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+              {THEMES.map((t) => (
+                <button key={t} className={theme === t ? 'primary' : ''} aria-pressed={theme === t}
+                  onClick={() => pick(t)} style={{ flex: 1, padding: '7px 0', fontSize: 13 }}>
+                  {THEME_LABEL[t]}
+                </button>
+              ))}
+            </div>
+            <p className="muted" style={{ margin: '10px 0 0', fontSize: 12, lineHeight: 1.5 }}>
+              시스템은 기기 설정을 따릅니다. 이 브라우저에만 저장되며 서버로 가지 않습니다.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── 인증 ────────────────────────────────────────────────────────────────────
 function Auth({ onDone }: { onDone: (m: Me) => void }) {
   const [mode, setMode] = useState<'login' | 'signup'>('signup');
@@ -234,8 +278,13 @@ function Auth({ onDone }: { onDone: (m: Me) => void }) {
   };
   return (
     <div className="wrap" style={{ maxWidth: 420 }}>
-      <h1>스도쿠</h1>
-      <p className="muted">여럿이 함께 푸는 스도쿠</p>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1>스도쿠</h1>
+          <p className="muted">여럿이 함께 푸는 스도쿠</p>
+        </div>
+        <Settings />
+      </div>
       <div className="card col" style={{ marginTop: 20 }}>
         <div className="row">
           <button className={mode === 'signup' ? 'primary' : ''} onClick={() => setMode('signup')}>가입</button>
