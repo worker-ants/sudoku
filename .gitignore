@@ -1,5 +1,10 @@
-.idea/
-# NERV — 캐시·오프라인 큐·연결 값(토큰)
+node_modules/
+dist/
+.next/
+.env
+.env.local
 .nerv/
-# 개인 설정(토큰이 들어 있다)
 .claude/settings.local.json
+.idea/
+.data/
+*.log
