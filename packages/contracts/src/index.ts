@@ -92,7 +92,6 @@ export interface ProgressRace {
   participants: {
     accountId: string;
     filled: number;          // 채운 칸 수 — 제약 위반을 가리지 않고 센다(RACE §4.2)
-    wrongSubmits: number;
     finished: boolean;
     connected: boolean;
     left: boolean;
@@ -101,7 +100,7 @@ export interface ProgressRace {
 export interface ProgressCoop {
   kind: 'coop';
   atEpochMs: number;
-  team: { filled: number; wrongSubmits: number; finished: boolean };
+  team: { filled: number; finished: boolean };
   cursors: { accountId: string; index: number | null }[];
   members: { accountId: string; connected: boolean; left: boolean }[];
 }
@@ -113,14 +112,16 @@ export interface CellRelay {
   changes: { index: number; value: number; byAccountId: string; seq: number }[];
 }
 
+/**
+ * 제출 결과 — **통과만 한다**(N6 · D10).
+ * 게이트가 "빈칸 0 + 제약 위반 0"이고 퍼즐이 유일해라, 조건을 만족한 보드는 필연적으로
+ * 정답이다(AREA-PLAY §1.3.1). 그래서 틀린 칸 수도 누진 페널티도 여기 없다.
+ */
 export interface SubmitResult {
-  passed: boolean;
-  /** 불일치 시 **틀린 칸 수만**(N1). 위치도 영역도 주지 않는다 */
-  wrongCount: number | null;
+  passed: true;
   submitsUsed: number;
-  submitsLimit: number;
-  penaltySecTotal: number;
-  finishedAtElapsedSec: number | null;
+  submitsLimit: number;      // 남용 방지용 기술적 한도이지 판정 자원이 아니다
+  finishedAtElapsedSec: number;
 }
 
 /** 협동 5초 취소 창 — 서버가 소유한다(COOP O7) */
@@ -148,7 +149,6 @@ export interface ParticipantResult {
   finished: boolean;
   adjustedFinishSec: number | null;  // 판 시작 기준 경과 초(D8)
   correctCells: number;
-  wrongSubmits: number;
   violations: number;
   hintsUsed: number;
   rank: number;
@@ -208,7 +208,7 @@ export type ServerMessage =
   | { t: 'room:state'; room: RoomView }
   | { t: 'room:closed'; reason: string }
   | { t: 'match:started'; match: MatchStarted }
-  | { t: 'match:snapshot'; match: MatchStarted; cells: number[]; submitsUsed: number; penaltySecTotal: number; hintsUsed: number; finished: boolean }
+  | { t: 'match:snapshot'; match: MatchStarted; cells: number[]; submitsUsed: number; hintsUsed: number; finished: boolean }
   | { t: 'progress'; progress: Progress }
   | { t: 'cells'; relay: CellRelay }
   | { t: 'submit:result'; result: SubmitResult }

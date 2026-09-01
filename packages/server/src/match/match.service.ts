@@ -14,7 +14,7 @@ import type { CellRelay, MatchStarted, Progress, ServerMessage } from '@sudoku/c
 import {
   cancelTeamSubmit, createMatch, dueEndReason, elapsedSec, finalizeMatch, fireTeamSubmit,
   markKicked, markLeft, requestHint, requestTeamSubmit, setCell, setConnected, setCursor,
-  submitRace, submitBlockedReason, boardOf, filledCount,
+  submitRace, submitBlockedReason, boardOf, filledCount, SUBMIT_LIMIT,
   type EndReason, type FinalizedMatch, type MatchState,
 } from '@sudoku/core';
 import type { StateStore } from '../storage/ports.js';
@@ -87,7 +87,6 @@ export class MatchService implements OnModuleDestroy {
       match: this.startedPayload(m),
       cells: [...boardOf(m, accountId)],
       submitsUsed,
-      penaltySecTotal: Array.from({ length: submitsUsed }, (_, i) => 30 * (i + 1)).reduce((a, b) => a + b, 0),
       hintsUsed,
       finished: p.finished,
     };
@@ -123,7 +122,6 @@ export class MatchService implements OnModuleDestroy {
         participants: [...m.participants.values()].map((p) => ({
           accountId: p.accountId,
           filled: filledCount(p.cells, m.givens),
-          wrongSubmits: p.submitsUsed,
           finished: p.finished, connected: p.connected, left: p.left || p.kicked,
         })),
       };
@@ -131,7 +129,7 @@ export class MatchService implements OnModuleDestroy {
     const t = m.team!;
     return {
       kind: 'coop', atEpochMs: at,
-      team: { filled: filledCount(t.cells, m.givens), wrongSubmits: t.submitsUsed, finished: t.finished },
+      team: { filled: filledCount(t.cells, m.givens), finished: t.finished },
       cursors: [...m.participants.values()].map((p) => ({ accountId: p.accountId, index: p.cursor })),
       members: [...m.participants.values()].map((p) => ({ accountId: p.accountId, connected: p.connected, left: p.left || p.kicked })),
     };
@@ -167,9 +165,7 @@ export class MatchService implements OnModuleDestroy {
           byNickname: m.participants.get(by)?.nickname ?? '', endsAtEpochMs: now, isLastSubmit: false,
         } });
         this.broadcast(m.roomId, { t: 'submit:result', result: {
-          passed: fired.outcome.passed, wrongCount: fired.outcome.wrongCount,
-          submitsUsed: fired.outcome.submitsUsed, submitsLimit: 5,
-          penaltySecTotal: fired.outcome.penaltySecTotal,
+          passed: true, submitsUsed: fired.outcome.submitsUsed, submitsLimit: SUBMIT_LIMIT,
           finishedAtElapsedSec: fired.outcome.finishedAtElapsedSec,
         } });
         await this.persist(m);
@@ -216,9 +212,8 @@ export class MatchService implements OnModuleDestroy {
         return;
       }
       this.direct(accountId, { t: 'submit:result', result: {
-        passed: r.outcome.passed, wrongCount: r.outcome.wrongCount,
-        submitsUsed: r.outcome.submitsUsed, submitsLimit: 5,
-        penaltySecTotal: r.outcome.penaltySecTotal, finishedAtElapsedSec: r.outcome.finishedAtElapsedSec,
+        passed: true, submitsUsed: r.outcome.submitsUsed, submitsLimit: SUBMIT_LIMIT,
+        finishedAtElapsedSec: r.outcome.finishedAtElapsedSec,
       } });
       await this.persist(m);
       return;

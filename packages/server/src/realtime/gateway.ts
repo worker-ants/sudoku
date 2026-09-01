@@ -64,7 +64,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
             participants: f.participants.map((p) => ({
               accountId: p.accountId, nickname: p.nickname, finished: p.finished,
               adjustedFinishSec: p.adjustedFinishSec, correctCells: p.correctCells,
-              wrongSubmits: p.wrongSubmits, violations: p.violations, hintsUsed: p.hintsUsed,
+              violations: p.violations, hintsUsed: p.hintsUsed,
               rank: p.rank, rankPoint: p.rankPoint, left: p.left, kicked: p.kicked,
               ratingDelta: ratingDeltas.get(p.accountId) ?? null,
               contribution: p.contribution, gatePassed: p.gatePassed, requiredContribution: p.requiredContribution,

@@ -61,7 +61,7 @@ describe('입력', () => {
   });
 });
 
-describe('제출 (N1 · N2)', () => {
+describe('제출 — 통과만 한다 (N6 · D10)', () => {
   it('빈칸이 남았으면 제출할 수 없다', () => {
     const m = mk('race');
     expect(submitBlockedReason(m, 'a')).toBe('incomplete');
@@ -109,15 +109,22 @@ describe('제출 (N1 · N2)', () => {
     expect(violationFreeButWrong).toBe(0);
   });
 
-  it('오답 제출 경로 자체는 살아 있다 — 게이트를 우회해 도달하면 틀린 칸 수만 돌려준다', () => {
-    // 게이트가 막으므로 정상 경로로는 닿지 않는다. 채점 로직이 맞는지만 직접 확인한다.
+  it('한 칸이라도 다르면 게이트가 먼저 막는다 — 오답 제출이라는 결과가 아니다 (D10)', () => {
     const m = mk('race');
     fill(m, 'a');
     const blanks = PZ.givens.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
     m.participants.get('a')!.cells[blanks[0]!] = ((PZ.solution[blanks[0]!]! % 9) + 1);
     const r = submitRace(m, 'a', T0 + 70_000);
-    expect(r.ok).toBe(false);            // 게이트가 막는다 — 위반이 생겼기 때문
-    expect(r.reason).toBe('violation');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('violation');   // 'gate-invariant' 가 아니다 — 게이트가 먼저 걸렀다
+  });
+
+  it('통과한 제출은 언제나 passed 다 — 실패 갈래가 없다 (D10 · N6)', () => {
+    const m = mk('race');
+    fill(m, 'a');
+    const r = submitRace(m, 'a', T0 + 70_000);
+    expect(r.outcome!.passed).toBe(true);
+    expect(r.outcome!.finishedAtElapsedSec).toBe(70);   // 조정분 0 — 통과 시각 그대로
   });
 });
 

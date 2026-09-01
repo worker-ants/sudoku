@@ -1,27 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adjustedFinishSec, compareForRank, gatePassed, judge, penaltyForNthWrongSubmit,
-  rankPoint, requiredContribution, teamPoint, totalPenaltySec,
+  adjustedFinishSec, compareForRank, gatePassed, judge,
+  rankPoint, requiredContribution, teamPoint,
 } from '../src/scoring/scoring.js';
 
 const J = (o: Partial<Parameters<typeof judge>[0][number]> & { accountId: string }) => ({
-  finished: false, adjustedFinishSec: null, correctCells: 0, wrongSubmits: 0, hintsUsed: 0, ...o,
+  finished: false, adjustedFinishSec: null, correctCells: 0, hintsUsed: 0, ...o,
 });
 
-describe('페널티와 조정 완주 시각 (D6 · D8)', () => {
-  it('n번째 오답 제출에 +30n초 누진', () => {
-    expect(penaltyForNthWrongSubmit(1)).toBe(30);
-    expect(penaltyForNthWrongSubmit(2)).toBe(60);
-    expect(penaltyForNthWrongSubmit(3)).toBe(90);
-    expect(totalPenaltySec(3)).toBe(180);
-    expect(totalPenaltySec(0)).toBe(0);
+describe('조정 완주 시각 (D8 · D10)', () => {
+  it('조정분이 없다 — 통과 시각의 경과 초 그대로다', () => {
+    expect(adjustedFinishSec(1450)).toBe(1450);
+    expect(adjustedFinishSec(0)).toBe(0);
   });
-  it('조정 완주 시각은 경과 초에 페널티를 더한 값이다', () => {
-    // §7.2.1 의 수치 예: 1450초에 통과, 오답 3회 → 1630초
-    expect(adjustedFinishSec(1450, 3)).toBe(1630);
-  });
-  it('조정 완주 시각은 제한 시간 밖으로 나갈 수 있다', () => {
-    expect(adjustedFinishSec(1450, 3)).toBeGreaterThan(1500);
+  it('제한 시간 밖으로 나갈 수 없다 — 페널티가 폐기됐다(D10)', () => {
+    expect(adjustedFinishSec(1450)).toBeLessThanOrEqual(1500);
   });
 });
 
@@ -37,10 +30,7 @@ describe('정렬 키 (§4.1)', () => {
   it('미완주자끼리는 정답 칸 수가 많은 쪽이 앞', () => {
     expect(compareForRank(J({ accountId: 'a', correctCells: 30 }), J({ accountId: 'b', correctCells: 40 }))).toBeGreaterThan(0);
   });
-  it('정답 칸 수가 같으면 오답 제출이 적은 쪽이 앞', () => {
-    expect(compareForRank(J({ accountId: 'a', correctCells: 30, wrongSubmits: 2 }), J({ accountId: 'b', correctCells: 30, wrongSubmits: 0 }))).toBeGreaterThan(0);
-  });
-  it('그다음이 힌트 사용 횟수', () => {
+  it('정답 칸 수가 같으면 그다음은 힌트 사용 횟수다 — 4번 키는 폐기됐다(D10)', () => {
     expect(compareForRank(J({ accountId: 'a', correctCells: 30, hintsUsed: 3 }), J({ accountId: 'b', correctCells: 30, hintsUsed: 0 }))).toBeGreaterThan(0);
   });
 });
@@ -65,15 +55,19 @@ describe('순위와 rankPoint (§4.2)', () => {
 
 describe('팀 포인트 (§7.2 · D7)', () => {
   const limit = 1500, blanks = 54;
-  it('페널티가 판 밖으로 밀어도 완주는 51 아래로 내려가지 않는다', () => {
-    // §7.2.1 의 반례: 조정 1630초 → 이전 식이면 46
-    const p = teamPoint({ finished: true, adjustedFinishSec: 1630, limitSec: limit, correctCells: 54, blankCells: blanks });
-    expect(p).toBe(51);
+  it('클램프가 물리는 경우는 §5.1의 예외 하나뿐이다 — 만료 시각 완주', () => {
+    // D10 이후 조정 완주 시각이 제한 시간을 넘을 수 없으므로 여기가 유일한 경계다.
+    expect(teamPoint({ finished: true, adjustedFinishSec: limit, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
   });
-  it('그 판의 미완주 팀(53/54)은 49점이라 완주를 앞지르지 못한다', () => {
+  it('미완주 최고점(53/54)은 49점이라 그 완주를 앞지르지 못한다', () => {
     const q = teamPoint({ finished: false, adjustedFinishSec: null, limitSec: limit, correctCells: 53, blankCells: blanks });
     expect(q).toBe(49);
     expect(q).toBeLessThan(51);
+  });
+  it('클램프는 원식이 51 미만을 내는 지점부터 물린다 — 제한 시간보다 조금 앞이다', () => {
+    // §7.2.1 의 경계표: 1470초는 식이 그대로 51, 1485초는 식이 50이라 하한이 물린다.
+    expect(teamPoint({ finished: true, adjustedFinishSec: 1470, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
+    expect(teamPoint({ finished: true, adjustedFinishSec: 1485, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
   });
   it('제출 없이 만료 시각에 완주 인정되면 경계에서 51이다', () => {
     expect(teamPoint({ finished: true, adjustedFinishSec: limit, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);

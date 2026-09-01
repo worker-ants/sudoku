@@ -10,7 +10,7 @@ import type { Difficulty } from '../sudoku/solver.js';
 import type { Mode, ViolationDisplay } from '../rules/rules.js';
 import {
   HINT_LIMIT, SUBMIT_LIMIT, adjustedFinishSec, gatePassed, judge, requiredContribution,
-  teamPoint, totalPenaltySec, type Judgeable,
+  teamPoint, type Judgeable,
 } from '../scoring/scoring.js';
 
 export type EndReason = 'all-finished' | 'time-expired' | 'membership-empty';
@@ -157,15 +157,24 @@ export function submitBlockedReason(m: MatchState, accountId: string): string | 
   return null;
 }
 
+/** 제출은 통과만 한다 — D10 · N6 (AREA-PLAY §1.3.1) */
 export interface SubmitOutcome {
-  passed: boolean; wrongCount: number | null;
-  submitsUsed: number; penaltySecTotal: number; finishedAtElapsedSec: number | null;
+  passed: true;
+  submitsUsed: number;
+  finishedAtElapsedSec: number;
 }
 
-function scoreSubmit(m: MatchState, board: number[]): number {
-  let wrong = 0;
-  for (let i = 0; i < 81; i++) if (board[i] !== m.solution[i]) wrong++;
-  return wrong;
+/**
+ * 게이트를 통과한 보드가 정답인지 다시 확인한다.
+ *
+ * **정상 경로에서는 항상 참이다** — 유일해 퍼즐에서 단서를 보존한 채 완성되고 제약을
+ * 어기지 않는 배치는 정답 하나뿐이다. 그래도 확인하는 이유는, 이 불변식이 깨졌다면
+ * 그것은 오답 제출이 아니라 **게이트나 퍼즐 생성의 버그**이기 때문이다.
+ * 조용히 완주로 처리하는 대신 거부해서 드러낸다.
+ */
+function matchesSolution(m: MatchState, board: number[]): boolean {
+  for (let i = 0; i < 81; i++) if (board[i] !== m.solution[i]) return false;
+  return true;
 }
 
 /** 레이스: 개인 제출. 협동은 requestSubmit → fireSubmit 경로를 쓴다 */
@@ -175,20 +184,14 @@ export function submitRace(m: MatchState, accountId: string, nowMs: number): { o
   const blocked = canInput(m, p, nowMs) ?? submitBlockedReason(m, accountId);
   if (blocked) return { ok: false, reason: blocked };
 
-  const wrong = scoreSubmit(m, p.cells);
-  if (wrong === 0) {
-    p.finished = true;
-    p.finishElapsedSec = elapsedSec(m, nowMs);
-    return { ok: true, outcome: {
-      passed: true, wrongCount: null, submitsUsed: p.submitsUsed,
-      penaltySecTotal: totalPenaltySec(p.submitsUsed),
-      finishedAtElapsedSec: adjustedFinishSec(p.finishElapsedSec, p.submitsUsed),
-    } };
-  }
+  if (!matchesSolution(m, p.cells)) return { ok: false, reason: 'gate-invariant' };
+
   p.submitsUsed++;
+  p.finished = true;
+  p.finishElapsedSec = elapsedSec(m, nowMs);
   return { ok: true, outcome: {
-    passed: false, wrongCount: wrong, submitsUsed: p.submitsUsed,
-    penaltySecTotal: totalPenaltySec(p.submitsUsed), finishedAtElapsedSec: null,
+    passed: true, submitsUsed: p.submitsUsed,
+    finishedAtElapsedSec: adjustedFinishSec(p.finishElapsedSec),
   } };
 }
 
@@ -227,22 +230,17 @@ export function fireTeamSubmit(m: MatchState, nowMs: number): { fired: boolean; 
   if (!t.window || nowMs < t.window.endsAtMs) return { fired: false };
   const snapshot = t.window.snapshot;
   t.window = null;
-  const wrong = scoreSubmit(m, snapshot);
-  if (wrong === 0) {
-    t.finished = true;
-    t.finishElapsedSec = elapsedSec(m, nowMs);
-    t.cells = snapshot;
-    for (const p of m.participants.values()) { p.finished = true; p.finishElapsedSec = t.finishElapsedSec; }
-    return { fired: true, outcome: {
-      passed: true, wrongCount: null, submitsUsed: t.submitsUsed,
-      penaltySecTotal: totalPenaltySec(t.submitsUsed),
-      finishedAtElapsedSec: adjustedFinishSec(t.finishElapsedSec, t.submitsUsed),
-    } };
-  }
+  // 창이 열린 동안 입력이 잠기므로(O7) 스냅샷은 요청 시점에 게이트를 통과한 그 보드다.
+  if (!matchesSolution(m, snapshot)) return { fired: true };
+
   t.submitsUsed++;
+  t.finished = true;
+  t.finishElapsedSec = elapsedSec(m, nowMs);
+  t.cells = snapshot;
+  for (const p of m.participants.values()) { p.finished = true; p.finishElapsedSec = t.finishElapsedSec; }
   return { fired: true, outcome: {
-    passed: false, wrongCount: wrong, submitsUsed: t.submitsUsed,
-    penaltySecTotal: totalPenaltySec(t.submitsUsed), finishedAtElapsedSec: null,
+    passed: true, submitsUsed: t.submitsUsed,
+    finishedAtElapsedSec: adjustedFinishSec(t.finishElapsedSec),
   } };
 }
 
@@ -300,7 +298,7 @@ export function dueEndReason(m: MatchState, nowMs: number): EndReason | null {
 export interface FinalizedParticipant {
   accountId: string; nickname: string;
   finished: boolean; adjustedFinishSec: number | null;
-  correctCells: number; wrongSubmits: number; violations: number; hintsUsed: number;
+  correctCells: number; violations: number; hintsUsed: number;
   rank: number; rankPoint: number; left: boolean; kicked: boolean;
   contribution?: number; gatePassed?: boolean; requiredContribution?: number;
   cells: number[];
@@ -362,13 +360,12 @@ export function finalizeMatch(m: MatchState, reason: EndReason, atEpochMs: numbe
 
   const judgeable: Judgeable[] = [...m.participants.values()].map((p) => {
     const board = boardOf(m, p.accountId);
-    const wrongSubmits = m.mode === 'coop' ? m.team!.submitsUsed : p.submitsUsed;
+
     return {
       accountId: p.accountId,
       finished: p.finished,
-      adjustedFinishSec: p.finished && p.finishElapsedSec !== null ? adjustedFinishSec(p.finishElapsedSec, wrongSubmits) : null,
+      adjustedFinishSec: p.finished && p.finishElapsedSec !== null ? adjustedFinishSec(p.finishElapsedSec) : null,
       correctCells: correctOf(board),
-      wrongSubmits,
       hintsUsed: m.mode === 'coop' ? m.team!.hintsUsed : p.hintsUsed,
     };
   });
@@ -379,7 +376,7 @@ export function finalizeMatch(m: MatchState, reason: EndReason, atEpochMs: numbe
     const base: FinalizedParticipant = {
       accountId: p.accountId, nickname: p.nickname,
       finished: j.finished, adjustedFinishSec: j.adjustedFinishSec,
-      correctCells: j.correctCells, wrongSubmits: j.wrongSubmits,
+      correctCells: j.correctCells,
       violations: p.violations, hintsUsed: j.hintsUsed,
       rank: m.mode === 'coop' ? 0 : j.rank,
       rankPoint: m.mode === 'coop' ? 0 : j.rankPoint,
@@ -401,7 +398,7 @@ export function finalizeMatch(m: MatchState, reason: EndReason, atEpochMs: numbe
   };
   if (m.mode === 'coop') {
     const t = m.team!;
-    const adj = t.finished && t.finishElapsedSec !== null ? adjustedFinishSec(t.finishElapsedSec, t.submitsUsed) : null;
+    const adj = t.finished && t.finishElapsedSec !== null ? adjustedFinishSec(t.finishElapsedSec) : null;
     out.team = {
       finished: t.finished, adjustedFinishSec: adj, hintsUsed: t.hintsUsed, filledCells: teamFilled,
       teamPoint: teamPoint({

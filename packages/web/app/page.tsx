@@ -52,7 +52,7 @@ export default function App() {
         return;
       case 'submit:result':
         setSubmitRes(m.result);
-        say(m.result.passed ? '통과 — 완주했습니다' : `틀린 칸이 ${m.result.wrongCount}개 있습니다`);
+        say('통과 — 완주했습니다');   // 제출은 통과만 한다 (D10 · N6)
         return;
       case 'submit:window': setWindow_(m.window.state === 'open' ? m.window : null);
         if (m.window.state === 'cancelled') say(`${m.window.cancelledByNickname}님이 제출을 취소했습니다`);
@@ -189,7 +189,6 @@ export default function App() {
             </div>
             {!isFull(cells) && <p className="muted">빈칸 {cells.filter((v, i) => !match.givens[i] && !v).length}개</p>}
             {isFull(cells) && bad.size > 0 && <p className="muted" style={{ color: 'var(--danger)' }}>제출할 수 없습니다 — 같은 줄이나 칸에 같은 숫자가 있습니다</p>}
-            {submitRes && !submitRes.passed && <p className="muted">오답 제출 {submitRes.submitsUsed}/{submitRes.submitsLimit} · 누적 페널티 +{submitRes.penaltySecTotal}초</p>}
           </div>
 
           <div className="col" style={{ flex: 1, minWidth: 260 }}>
@@ -362,7 +361,8 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
             </label>
           </div>
           <p className="muted" style={{ margin: 0 }}>
-            다 채우면 제출 · 판당 5회 · 오답마다 +30n초. 답이 맞았는지는 어느 설정에서도 제출하기 전까지 알 수 없습니다.
+            빈칸을 다 채우고 제약 위반이 없으면 제출할 수 있고, <strong>제출은 곧 완주</strong>입니다.
+            보드를 다 채우기 전까지는 어떤 칸이 맞았는지 알 수 없습니다.
           </p>
           {isHost && !room.eligibility.eligible && <button onClick={() => send({ t: 'rules:preset' })}>랭크 판으로 맞추기</button>}
         </div>
@@ -406,13 +406,13 @@ function ProgressPanel({ progress, match, me }: { progress: Progress | null; mat
           <span>{nick(p.accountId)}{p.accountId === me.accountId ? ' (나)' : ''}
             {p.left && <span className="badge no" style={{ marginLeft: 6 }}>이탈</span>}
             {!p.connected && !p.left && <span className="badge" style={{ marginLeft: 6 }}>연결 끊김</span>}</span>
-          <span className="num">{p.finished ? <span className="badge ok">완주</span> : `${p.filled}칸`}{p.wrongSubmits > 0 && ` · 오답 ${p.wrongSubmits}`}</span>
+          <span className="num">{p.finished ? <span className="badge ok">완주</span> : `${p.filled}칸`}</span>
         </div>
       ))}
       {progress?.kind === 'coop' && (
         <>
           <div className="progress-row"><span>팀</span>
-            <span className="num">{progress.team.finished ? <span className="badge ok">완주</span> : `${progress.team.filled}칸`} · 제출 {progress.team.wrongSubmits}/5</span></div>
+            <span className="num">{progress.team.finished ? <span className="badge ok">완주</span> : `${progress.team.filled}칸`}</span></div>
           {progress.members.map((m) => (
             <div key={m.accountId} className="progress-row">
               <span>{nick(m.accountId)}{m.accountId === me.accountId ? ' (나)' : ''}</span>
@@ -507,7 +507,7 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
         <thead>
           <tr>
             {ended.mode === 'race' && <th>순위</th>}
-            <th>이름</th><th>완주</th><th>조정 완주 시각</th><th>정답 칸</th><th>오답 제출</th>
+            <th>이름</th><th>완주</th><th>조정 완주 시각</th><th>정답 칸</th>
             {ended.mode === 'race' && <th>포인트</th>}
             {ended.mode === 'race' && <th>레이팅</th>}
             {ended.mode === 'coop' && <th>기여</th>}
@@ -521,7 +521,6 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
               <td>{p.finished ? '✓' : '—'}</td>
               <td className="num">{p.adjustedFinishSec !== null ? fmtSec(p.adjustedFinishSec) : '—'}</td>
               <td className="num">{p.correctCells}</td>
-              <td className="num">{p.wrongSubmits}</td>
               {ended.mode === 'race' && <td className="num">{p.rankPoint}</td>}
               {ended.mode === 'race' && <td className="num">{p.ratingDelta === null ? '—' : (p.ratingDelta > 0 ? `+${p.ratingDelta}` : p.ratingDelta)}</td>}
               {ended.mode === 'coop' && <td className="num">{p.contribution}/{p.requiredContribution} {p.gatePassed ? '✓' : <span className="badge no">미달</span>}</td>}

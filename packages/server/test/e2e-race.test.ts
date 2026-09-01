@@ -102,7 +102,7 @@ describe('레이스 한 판 — 로그인부터 결과까지', () => {
     expect(started.rankEligible).toBe(true);
   });
 
-  it('진행률 방송이 500ms 주기로 온다 — 채운 칸 수·오답 제출 횟수·완주 여부', async () => {
+  it('진행률 방송이 500ms 주기로 온다 — 채운 칸 수·완주 여부 (D10 이후 두 값이다)', async () => {
     const blanks = started.givens.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
     guest.send({ t: 'cell:set', index: blanks[0]!, value: puzzle.solution[blanks[0]!]! });
     await sleep(700);
@@ -111,7 +111,8 @@ describe('레이스 한 판 — 로그인부터 결과까지', () => {
     if (p.progress.kind !== 'race') return;
     const me = p.progress.participants.find((x) => x.accountId === guest.accountId)!;
     expect(me.filled).toBeGreaterThanOrEqual(1);
-    expect(Object.keys(me).sort()).toEqual(['accountId', 'connected', 'filled', 'finished', 'left', 'wrongSubmits']);
+    // 오답 제출 횟수는 항상 0이라 방송에서 뺐다 (AREA-PLAY §2.1 · D10)
+    expect(Object.keys(me).sort()).toEqual(['accountId', 'connected', 'filled', 'finished', 'left']);
   });
 
   it('레이스는 남의 입력이 내 보드에 닿지 않는다', async () => {
@@ -139,8 +140,7 @@ describe('레이스 한 판 — 로그인부터 결과까지', () => {
     await sleep(300);
     host.send({ t: 'submit:request' });
     const r = await host.next('submit:result');
-    expect(r.result.passed).toBe(true);
-    expect(r.result.wrongCount).toBeNull();
+    expect(r.result.passed).toBe(true);            // 실패 갈래가 없다 (D10 · N6)
     expect(r.result.finishedAtElapsedSec).toBeGreaterThanOrEqual(0);
     expect(r.result.finishedAtElapsedSec).toBeLessThan(900);
   });

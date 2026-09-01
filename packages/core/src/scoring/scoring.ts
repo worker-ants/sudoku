@@ -6,20 +6,15 @@
 export const SUBMIT_LIMIT = 5;
 export const HINT_LIMIT = 3;
 
-/** n번째 오답 제출에 +30n초 누진 (D6) */
-export const penaltyForNthWrongSubmit = (n: number): number => 30 * n;
-export const totalPenaltySec = (wrongSubmits: number): number => {
-  let s = 0;
-  for (let n = 1; n <= wrongSubmits; n++) s += penaltyForNthWrongSubmit(n);
-  return s;
-};
-
 /**
- * 조정 완주 시각 = (제출 통과 시각 − 판 시작 시각) + 오답 제출 페널티 합
- * **판 시작 기준 경과 초다** (D8). 절대 시각이 아니다.
+ * 조정 완주 시각 = 제출 통과 시각 − 판 시작 시각. **판 시작 기준 경과 초다** (D8).
+ *
+ * 이름의 "조정"은 오답 제출 페널티(D6)를 가리켰는데, **그 조정분은 항상 0이다** —
+ * 게이트를 통과한 보드는 필연적으로 정답이라 오답 제출이 일어나지 않는다(D10 · N6).
+ * 값이 달라지지 않는 개명에 문서 다섯 편과 저장 스키마를 움직이지 않기로 했다
+ * (DSN-SCORING §4.1.2).
  */
-export const adjustedFinishSec = (passElapsedSec: number, wrongSubmits: number): number =>
-  passElapsedSec + totalPenaltySec(wrongSubmits);
+export const adjustedFinishSec = (passElapsedSec: number): number => passElapsedSec;
 
 export interface Judgeable {
   accountId: string;
@@ -27,7 +22,6 @@ export interface Judgeable {
   /** 완주자만 값을 갖는다 */
   adjustedFinishSec: number | null;
   correctCells: number;
-  wrongSubmits: number;
   hintsUsed: number;
 }
 export interface Judged extends Judgeable { rank: number; rankPoint: number }
@@ -40,7 +34,7 @@ export function compareForRank(a: Judgeable, b: Judgeable): number {
     if (d !== 0) return d;
   } else {
     if (a.correctCells !== b.correctCells) return b.correctCells - a.correctCells; // 3
-    if (a.wrongSubmits !== b.wrongSubmits) return a.wrongSubmits - b.wrongSubmits; // 4
+    // 4번 키(오답 제출 횟수)는 폐기됐다 — 항상 전원 0이다 (D10). 번호는 비워 둔다.
   }
   if (a.hintsUsed !== b.hintsUsed) return a.hintsUsed - b.hintsUsed;               // 5
   return 0;                                                                        // 6 공동 순위
