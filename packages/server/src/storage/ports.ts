@@ -67,6 +67,8 @@ export interface ResultStore {
   topRecords(bracket: string, limit: number): Promise<RecordRow[]>;
 
   addPuzzle(row: PuzzleRow): Promise<void>;
+  /** 배정 가능한 퍼즐 수 — 꺼내지 않고 센다. 시작 조건 확인이 풀을 건드리지 않게 한다. */
+  countAvailablePuzzles(difficulty: string, excludeIds: string[]): Promise<number>;
   countPuzzles(difficulty: string): Promise<number>;
   takePuzzle(difficulty: string, excludeIds: string[]): Promise<PuzzleRow | null>;
   markPuzzleSeen(rows: PuzzleSeenRow[]): Promise<void>;

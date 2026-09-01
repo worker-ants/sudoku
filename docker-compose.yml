@@ -1,0 +1,32 @@
+# 개발·통합 테스트용 인프라 (ADR-STACK S2·S3)
+#
+# 포트는 5432/6379 가 아니라 5433/6380 이다 — 같은 머신에서 도는 다른 스택과
+# 부딪히지 않게 하려는 것이고, 이 프로젝트가 남의 DB 에 끼어들지 않는다는 뜻이기도 하다.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sudoku
+      POSTGRES_PASSWORD: sudoku
+      POSTGRES_DB: sudoku
+    ports: ['127.0.0.1:5433:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sudoku -d sudoku']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ADR 은 Redis 를 정한다. Valkey 는 프로토콜이 같은 포크이고 이미지가 가볍다 —
+  # ioredis 클라이언트 입장에서 구분되지 않는다.
+  redis:
+    image: valkey/valkey:8-alpine
+    ports: ['127.0.0.1:6380:6379']
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

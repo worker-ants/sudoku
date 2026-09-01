@@ -5,7 +5,7 @@
  * 부팅 때 종료 시각에서 다시 건다** — 만료를 지나친 판은 발견 시각이 아니라 **종료 시각**
  * 기준으로 채점한다(§4.1).
  */
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
   CELL_RELAY_PERIOD_MS, PROGRESS_PERIOD_MS,
@@ -35,7 +35,7 @@ interface Live {
 }
 
 @Injectable()
-export class MatchService {
+export class MatchService implements OnModuleDestroy {
   private readonly log = new Logger('Match');
   private readonly live = new Map<string, Live>();
   private broadcast: Broadcast = () => {};
@@ -300,6 +300,8 @@ export class MatchService {
   }
 
   shutdown(): void { for (const id of [...this.live.keys()]) this.detach(id); }
+  /** 앱이 닫히면 타이머도 함께 선다 — 닫힌 뒤에도 도는 타이머가 상태를 덮어쓴다. */
+  onModuleDestroy(): void { this.shutdown(); }
 }
 
 export interface InputSummary {

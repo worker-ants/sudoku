@@ -1,24 +1,21 @@
 /**
  * 영구 저장소 — PostgreSQL (ADR-STACK S2).
  *
- * 여기서는 PGlite(WASM 로 컴파일된 실물 PostgreSQL)를 인프로세스로 띄운다.
- * SQL·JSONB 의미가 진짜 Postgres 그대로라, 룰 스냅샷을 JSONB 로 두고 브래킷 재계산의
- * 근거로 삼는다는 §6.2의 결정이 실제로 성립하는지 여기서 확인된다.
- * `DATABASE_URL` 이 있으면 그 서버에 붙는 어댑터로 바꿔 끼우면 된다.
+ * SQL 은 한 벌이고 붙는 서버만 두 가지다 — 드라이버 선택은 sql.driver.ts 가 한다.
+ * 어느 쪽이든 진짜 Postgres 이므로, 룰 스냅샷을 JSONB 로 두고 브래킷 재계산의 근거로
+ * 삼는다는 §6.2의 결정이 실제로 성립하는지가 여기서 그대로 확인된다.
  */
-import { PGlite } from '@electric-sql/pglite';
 import { PLACEMENT_MATCHES } from '@sudoku/core';
+import { PgliteDriver, type SqlDriver } from './sql.driver.js';
 import type {
   AccountRow, InputSummaryRow, MatchResultRow, PuzzleRow, PuzzleSeenRow,
   RatingRow, RecordRow, ResultStore, SeasonPointRow,
 } from './ports.js';
 
-export class PgliteResultStore implements ResultStore {
-  private db!: PGlite;
-  constructor(private readonly dataDir?: string) {}
+export class SqlResultStore implements ResultStore {
+  constructor(private readonly db: SqlDriver) {}
 
   async init(): Promise<void> {
-    this.db = this.dataDir ? new PGlite(this.dataDir) : new PGlite();
     await this.db.exec(`
       CREATE TABLE IF NOT EXISTS account (
         account_id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL,
@@ -205,6 +202,13 @@ export class PgliteResultStore implements ResultStore {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (puzzle_id) DO NOTHING`,
       [p.puzzleId, p.difficulty, p.seed, JSON.stringify(p.givens), JSON.stringify(p.solution), JSON.stringify(p.path), p.clues, p.createdAtEpochMs]);
   }
+  async countAvailablePuzzles(difficulty: string, excludeIds: string[]): Promise<number> {
+    const r = this.rows<Record<string, unknown>>(await this.db.query(
+      `SELECT COUNT(*)::int AS n FROM puzzle
+       WHERE difficulty=$1 AND taken=FALSE AND NOT (puzzle_id = ANY($2::text[]))`,
+      [difficulty, excludeIds]));
+    return Number(r[0]?.['n'] ?? 0);
+  }
   async countPuzzles(difficulty: string): Promise<number> {
     const r = this.rows<Record<string, unknown>>(await this.db.query(
       'SELECT COUNT(*)::int AS n FROM puzzle WHERE difficulty=$1 AND taken=FALSE', [difficulty]));
@@ -250,4 +254,9 @@ export class PgliteResultStore implements ResultStore {
     }
   }
   async close(): Promise<void> { await this.db.close(); }
+}
+
+/** 인프로세스 PGlite 로 도는 스토어 — 단위 테스트와 오프라인 실행용 지름길. */
+export class PgliteResultStore extends SqlResultStore {
+  constructor(dataDir?: string) { super(new PgliteDriver(dataDir)); }
 }

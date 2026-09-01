@@ -69,8 +69,8 @@ describe('재시작 복구', () => {
     await h.stop(true);
 
     // 저장된 판의 종료 시각을 과거로 옮겨 "다운타임이 만료를 넘긴" 상황을 만든다
-    const { FileStateStore, stateFilePath } = await import('../src/storage/file-state.store.js');
-    const st = new FileStateStore(stateFilePath(dir));
+    const { createStateStore } = await import('../src/storage/state.factory.js');
+    const st = await createStateStore(dir);   // 앱과 같은 자리에서 고른다 — Redis 로 돌 때도 같은 것을 본다
     const stored = await st.get<{ base: { endsAtEpochMs: number; startedAtEpochMs: number; limitSec: number } }>(`match:${matchId}`);
     const shifted = Date.now() - 60_000;
     stored!.base.endsAtEpochMs = shifted;

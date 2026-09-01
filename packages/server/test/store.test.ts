@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { PgliteResultStore } from '../src/storage/pglite.store.js';
+import { PgliteResultStore } from '../src/storage/sql.store.js';
 import { FileStateStore } from '../src/storage/file-state.store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

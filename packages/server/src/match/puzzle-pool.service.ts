@@ -6,7 +6,7 @@
  *
  * **랭크 판은 폴백 배정으로 시작하지 않는다**(R8). 캐주얼만 폴백한다.
  */
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ROLLING_30D, generatePuzzle, type Difficulty } from '@sudoku/core';
 import { CONFIG } from '../config.js';
 import type { PuzzleRow, ResultStore } from '../storage/ports.js';
@@ -16,7 +16,7 @@ const DIFFICULTIES: Difficulty[] = ['intro', 'normal', 'hard', 'expert', 'nightm
 export interface Assignment { puzzle: PuzzleRow; fallback: boolean }
 
 @Injectable()
-export class PuzzlePoolService {
+export class PuzzlePoolService implements OnModuleDestroy {
   private readonly log = new Logger('PuzzlePool');
   private timer: NodeJS.Timeout | null = null;
   private filling = false;
@@ -53,25 +53,23 @@ export class PuzzlePoolService {
     this.timer.unref?.();
   }
   stop(): void { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  onModuleDestroy(): void { this.stop(); }
 
   /** 최근 30일(롤링) 안에 참가자 누구라도 본 퍼즐은 후보에서 뺀다 */
   private async excluded(accountIds: string[], now: number): Promise<string[]> {
     return this.db.puzzlesSeenSince(accountIds, now - ROLLING_30D);
   }
 
-  /** 시작 조건 5 — 랭크 판이 폴백 없이 배정될 수 있는가 */
+  /**
+   * 시작 조건 5 — 랭크 판이 폴백 없이 배정될 수 있는가.
+   *
+   * **세기만 한다.** 이전 구현은 퍼즐을 꺼냈다가 되돌려 놓았는데, 그러면 질문에 답하는
+   * 동안 풀에서 그 퍼즐이 사라진다. 룸 상태를 새로 그릴 때마다 불리는 함수라 호출이
+   * 겹치기 쉽고, 겹치면 서로의 퍼즐을 뺏어 "새 퍼즐이 없습니다"가 헛나온다.
+   */
   async canAssignWithoutFallback(difficulty: Difficulty, accountIds: string[], now = Date.now()): Promise<boolean> {
     const exclude = await this.excluded(accountIds, now);
-    const taken = await this.db.takePuzzle(difficulty, exclude);
-    if (!taken) return false;
-    // 확인만 하는 호출이라 되돌려 놓는다
-    await this.db.addPuzzle({ ...taken, puzzleId: taken.puzzleId });
-    await this.untake(taken.puzzleId);
-    return true;
-  }
-  private async untake(puzzleId: string): Promise<void> {
-    const anyDb = this.db as unknown as { untakePuzzle?: (id: string) => Promise<void> };
-    await anyDb.untakePuzzle?.(puzzleId);
+    return (await this.db.countAvailablePuzzles(difficulty, exclude)) > 0;
   }
 
   /**

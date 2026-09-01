@@ -12,6 +12,7 @@ import {
 import type { LobbyRoomView, MemberView, RoomView } from '@sudoku/contracts';
 import { CONFIG } from '../config.js';
 import type { StateStore } from '../storage/ports.js';
+import { KeyedMutex } from './keyed-mutex.js';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';   // 0 O 1 I L 제외 (L2)
 export const generateRoomCode = (rand = Math.random): string =>
@@ -43,7 +44,19 @@ const membershipKey = (accountId: string) => `membership:${accountId}`;
 
 @Injectable()
 export class RoomService {
+  /** 룸 하나의 읽고-고쳐-쓰기를 직렬화한다 — keyed-mutex.ts 에 이유가 있다. */
+  private readonly lock = new KeyedMutex();
+
   constructor(@Inject('StateStore') private readonly state: StateStore) {}
+
+  /**
+   * 룸 변경을 한 줄로 세운다.
+   *
+   * 키를 룸별로 쪼개는 편이 조밀하지만, 룸을 옮기는 연산(참가)이 **두 룸**을 건드리므로
+   * 잠금 순서와 재진입을 함께 다뤄야 한다. v1 은 서버 프로세스가 하나이고 룸 변경은
+   * Redis 왕복 몇 번이라, 전역 한 줄이 더 싸고 확실히 옳다. 조밀하게 나눌 자리는 여기다.
+   */
+  withLock<T>(fn: () => Promise<T>): Promise<T> { return this.lock.run('rooms', fn); }
 
   async get(roomId: string): Promise<RoomState | null> { return this.state.get<RoomState>(roomKey(roomId)); }
   async save(room: RoomState): Promise<void> { await this.state.set(roomKey(room.roomId), room); }
@@ -62,7 +75,10 @@ export class RoomService {
     return out;
   }
 
-  async create(account: { accountId: string; nickname: string }, opts: { name?: string; isPublic?: boolean } = {}): Promise<RoomState> {
+  create(account: { accountId: string; nickname: string }, opts: { name?: string; isPublic?: boolean } = {}): Promise<RoomState> {
+    return this.withLock(() => this._create(account, opts));
+  }
+  private async _create(account: { accountId: string; nickname: string }, opts: { name?: string; isPublic?: boolean } = {}): Promise<RoomState> {
     await this.assertCanJoinElsewhere(account.accountId);
     let code = generateRoomCode();
     for (let i = 0; i < 20 && (await this.state.get<string>(codeKey(code))); i++) code = generateRoomCode();
@@ -90,10 +106,13 @@ export class RoomService {
     if (cur.phase === 'playing') {
       throw new RoomError('in-match', '진행 중인 판이 있습니다 — 그 룸으로 돌아가 나가기를 누르세요');
     }
-    await this.leave(accountId, { silent: true });
+    await this._leave(accountId, { silent: true });   // 이미 잠금 안이다 — 다시 잡으면 교착한다
   }
 
-  async join(account: { accountId: string; nickname: string }, code: string): Promise<RoomState> {
+  join(account: { accountId: string; nickname: string }, code: string): Promise<RoomState> {
+    return this.withLock(() => this._join(account, code));
+  }
+  private async _join(account: { accountId: string; nickname: string }, code: string): Promise<RoomState> {
     const room = await this.byCode(code);
     if (!room) throw new RoomError('no-room', '그런 룸이 없습니다');
     if (room.banned.includes(account.accountId)) throw new RoomError('banned', '이 룸에 다시 들어올 수 없습니다');
@@ -112,7 +131,10 @@ export class RoomService {
   }
 
   /** 나가기 — 멤버십 즉시 해제. 진행 중이면 되돌릴 수 없다(H4·H8) */
-  async leave(accountId: string, opts: { silent?: boolean } = {}): Promise<{ room: RoomState | null; wasPlaying: boolean }> {
+  leave(accountId: string, opts: { silent?: boolean } = {}): Promise<{ room: RoomState | null; wasPlaying: boolean }> {
+    return this.withLock(() => this._leave(accountId, opts));
+  }
+  private async _leave(accountId: string, opts: { silent?: boolean } = {}): Promise<{ room: RoomState | null; wasPlaying: boolean }> {
     const room = await this.membershipOf(accountId);
     if (!room) return { room: null, wasPlaying: false };
     const wasPlaying = room.phase === 'playing';
@@ -132,7 +154,10 @@ export class RoomService {
     if (next) room.hostAccountId = next.accountId;
   }
 
-  async kick(hostAccountId: string, targetId: string): Promise<RoomState> {
+  kick(hostAccountId: string, targetId: string): Promise<RoomState> {
+    return this.withLock(() => this._kick(hostAccountId, targetId));
+  }
+  private async _kick(hostAccountId: string, targetId: string): Promise<RoomState> {
     const room = await this.membershipOf(hostAccountId);
     if (!room) throw new RoomError('no-room', '룸에 없습니다');
     if (room.hostAccountId !== hostAccountId) throw new RoomError('not-host', '호스트만 내보낼 수 있습니다');
@@ -147,7 +172,10 @@ export class RoomService {
     return room;
   }
 
-  async delegate(hostAccountId: string, targetId: string): Promise<RoomState> {
+  delegate(hostAccountId: string, targetId: string): Promise<RoomState> {
+    return this.withLock(() => this._delegate(hostAccountId, targetId));
+  }
+  private async _delegate(hostAccountId: string, targetId: string): Promise<RoomState> {
     const room = await this.membershipOf(hostAccountId);
     if (!room) throw new RoomError('no-room', '룸에 없습니다');
     if (room.hostAccountId !== hostAccountId) throw new RoomError('not-host', '호스트만 넘길 수 있습니다');
@@ -159,7 +187,10 @@ export class RoomService {
   }
 
   /** 연결 끊김 — 대기·결과는 60초 유예 뒤 자동 퇴장, 진행 중에는 자리를 지킨다(H3) */
-  async setConnected(accountId: string, connected: boolean): Promise<RoomState | null> {
+  setConnected(accountId: string, connected: boolean): Promise<RoomState | null> {
+    return this.withLock(() => this._setConnected(accountId, connected));
+  }
+  private async _setConnected(accountId: string, connected: boolean): Promise<RoomState | null> {
     const room = await this.membershipOf(accountId);
     if (!room) return null;
     const m = room.members.find((x) => x.accountId === accountId);
@@ -218,7 +249,10 @@ export class RoomService {
     await this.state.set(`roomcode-reserved:${room.code}`, Date.now());
   }
 
-  async closeByHost(hostAccountId: string): Promise<string> {
+  closeByHost(hostAccountId: string): Promise<string> {
+    return this.withLock(() => this._closeByHost(hostAccountId));
+  }
+  private async _closeByHost(hostAccountId: string): Promise<string> {
     const room = await this.membershipOf(hostAccountId);
     if (!room) throw new RoomError('no-room', '룸에 없습니다');
     if (room.hostAccountId !== hostAccountId) throw new RoomError('not-host', '호스트만 닫을 수 있습니다');
@@ -228,7 +262,10 @@ export class RoomService {
   }
 
   // ── 룰과 준비 ────────────────────────────────────────────────────────────
-  async updateRules(hostAccountId: string, update: { patch: Partial<Rules>; followStandardLimit?: boolean } | 'preset'): Promise<{ room: RoomState; changes: string[] }> {
+  updateRules(hostAccountId: string, update: { patch: Partial<Rules>; followStandardLimit?: boolean } | 'preset'): Promise<{ room: RoomState; changes: string[] }> {
+    return this.withLock(() => this._updateRules(hostAccountId, update));
+  }
+  private async _updateRules(hostAccountId: string, update: { patch: Partial<Rules>; followStandardLimit?: boolean } | 'preset'): Promise<{ room: RoomState; changes: string[] }> {
     const room = await this.membershipOf(hostAccountId);
     if (!room) throw new RoomError('no-room', '룸에 없습니다');
     if (room.hostAccountId !== hostAccountId) throw new RoomError('not-host', '호스트만 룰을 바꿀 수 있습니다');
@@ -245,7 +282,10 @@ export class RoomService {
     return { room, changes: r.changes };
   }
 
-  async toggleReady(accountId: string): Promise<RoomState> {
+  toggleReady(accountId: string): Promise<RoomState> {
+    return this.withLock(() => this._toggleReady(accountId));
+  }
+  private async _toggleReady(accountId: string): Promise<RoomState> {
     const room = await this.membershipOf(accountId);
     if (!room) throw new RoomError('no-room', '룸에 없습니다');
     if (room.phase !== 'waiting') throw new RoomError('not-waiting', '대기 중에만 준비할 수 있습니다');
@@ -259,14 +299,19 @@ export class RoomService {
   }
 
   /** 인원 변동으로 랭크 자격이 뒤집히면 전원 준비 해제 (Y3) */
-  async reconcileEligibility(room: RoomState, wasEligible: boolean): Promise<boolean> {
-    const now = this.eligibility(room).eligible;
-    if (now !== wasEligible && room.phase === 'waiting') {
-      for (const m of room.members) m.ready = false;
-      await this.save(room);
-      return true;
-    }
-    return false;
+  /** 잠금 안에서 **다시 읽어** 판단한다 — 밖에서 들고 온 스냅샷을 저장하면 남의 수정을 덮는다. */
+  reconcileEligibility(roomId: string, wasEligible: boolean): Promise<boolean> {
+    return this.withLock(async () => {
+      const room = await this.get(roomId);
+      if (!room) return false;
+      const now = this.eligibility(room).eligible;
+      if (now !== wasEligible && room.phase === 'waiting') {
+        for (const m of room.members) m.ready = false;
+        await this.save(room);
+        return true;
+      }
+      return false;
+    });
   }
 
   eligibility(room: RoomState, puzzleAssignable?: boolean) {

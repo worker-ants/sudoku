@@ -2,7 +2,7 @@
  * socket.io 게이트웨이 — **나가는 메시지의 단일 지점**이다.
  * 여기를 지나지 않고 나가는 페이로드는 없고, 그래서 전송 가드가 자동으로 따라붙는다.
  */
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket, MessageBody, OnGatewayConnection, OnGatewayDisconnect,
   SubscribeMessage, WebSocketGateway, WebSocketServer,
@@ -23,7 +23,7 @@ interface SocketData { accountId: string; nickname: string; roomId: string | nul
 
 @Injectable()
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
-export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer() server!: Server;
   private readonly log = new Logger('Gateway');
   private readonly sockets = new Map<string, Socket>();       // accountId → 마지막 연결
@@ -43,15 +43,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       (accountId, msg) => this.toAccount(accountId, msg),
       async (m, f) => {
         const { ratingDeltas } = await this.ranking.handoff(m, f);
-        const room = await this.rooms.get(m.roomId);
-        if (room) {
+        const room = await this.rooms.withLock(async () => {
+          const room = await this.rooms.get(m.roomId);
+          if (!room) return null;
           room.phase = 'result';
           room.currentMatchId = null;
           room.lastResultMatchId = m.matchId;
           room.lastActivityAtMs = Date.now();
           for (const mem of room.members) mem.ready = false;
           await this.rooms.save(room);
-        }
+          return room;
+        });
         // **확정된 뒤에만** 나갈 수 있는 메시지다 — 가드가 그 순서를 강제한다
         this.toRoom(m.roomId, {
           t: 'match:ended',
@@ -99,7 +101,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // ── 연결 ────────────────────────────────────────────────────────────────
+  /**
+   * 연결 처리에서 새는 예외는 **처리되지 않은 거부**가 된다 — socket.io 는 이 훅을
+   * 기다리지 않기 때문이다. 저장소가 잠깐 흔들리면 프로세스가 죽는 자리라, 여기서 막고
+   * 소켓만 끊는다. 클라이언트는 어차피 재연결한다.
+   */
   async handleConnection(socket: Socket): Promise<void> {
+    try { await this.onConnect(socket); }
+    catch (e) {
+      this.log.error(`연결 처리 실패 — 소켓을 끊는다: ${e instanceof Error ? e.message : String(e)}`);
+      socket.disconnect(true);
+    }
+  }
+
+  private async onConnect(socket: Socket): Promise<void> {
     const cookie = socket.handshake.headers.cookie ?? '';
     const sid = /(?:^|;\s*)sid=([^;]+)/.exec(cookie)?.[1];
     const account = await this.auth.resolveSession(sid ? decodeURIComponent(sid) : undefined);
@@ -194,13 +209,18 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       case 'room:rematch': {
         const room = await this.rooms.membershipOf(d.accountId);
         if (!room) return;
-        if (room.hostAccountId !== d.accountId) throw new RoomError('not-host', '호스트만 다시 시작할 수 있습니다');
-        room.phase = 'waiting';
-        for (const m of room.members) m.ready = false;     // 룰은 남고 준비는 풀린다(§1.3)
-        room.leftDuringMatch = [];
-        room.lastActivityAtMs = Date.now();
-        await this.rooms.save(room);
-        this.pushRoom(room); return;
+        const again = await this.rooms.withLock(async () => {
+          const fresh = await this.rooms.get(room.roomId);
+          if (!fresh) return null;
+          if (fresh.hostAccountId !== d.accountId) throw new RoomError('not-host', '호스트만 다시 시작할 수 있습니다');
+          fresh.phase = 'waiting';
+          for (const m of fresh.members) m.ready = false;   // 룰은 남고 준비는 풀린다(§1.3)
+          fresh.leftDuringMatch = [];
+          fresh.lastActivityAtMs = Date.now();
+          await this.rooms.save(fresh);
+          return fresh;
+        });
+        if (again) this.pushRoom(again); return;
       }
       case 'chat:send': await this.chat(socket, d, msg.text); return;
       case 'lobby:subscribe': this.lobbyWatchers.add(socket.id); await this.pushLobby(true); return;
@@ -253,28 +273,42 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.toRoom(roomId, { t: 'chat', message: { id: randomUUID(), kind: 'system', accountId: null, nickname: null, text, atEpochMs: Date.now() } });
   }
 
+  /**
+   * 시작은 **잠금 안에서 읽고 잠금 안에서 저장한다.**
+   * socket.io 는 핸들러가 끝나기를 기다리지 않으므로, 같은 소켓의 앞 메시지(예: 룰 변경)가
+   * 아직 처리 중일 때 이 메시지가 도착한다. 밖에서 읽으면 바뀌기 직전의 룰로 판이 열린다.
+   */
   private async startMatch(socket: Socket, d: SocketData): Promise<void> {
-    const room = await this.rooms.membershipOf(d.accountId);
-    if (!room) throw new RoomError('no-room', '룸에 없습니다');
-    if (room.hostAccountId !== d.accountId) throw new RoomError('not-host', '호스트만 시작할 수 있습니다');
+    const prepared = await this.rooms.withLock(async () => {
+      const room = await this.rooms.membershipOf(d.accountId);
+      if (!room) throw new RoomError('no-room', '룸에 없습니다');
+      if (room.hostAccountId !== d.accountId) throw new RoomError('not-host', '호스트만 시작할 수 있습니다');
 
-    const ids = room.members.map((m) => m.accountId);
-    const rules = room.ruleState.rules;
-    const eligible = this.rooms.eligibility(room).eligible;
-    const assignable = eligible ? await this.pool.canAssignWithoutFallback(rules.difficulty as Difficulty, ids) : true;
+      const ids = room.members.map((m) => m.accountId);
+      const rules = room.ruleState.rules;
+      const eligible = this.rooms.eligibility(room).eligible;
+      const assignable = eligible ? await this.pool.canAssignWithoutFallback(rules.difficulty as Difficulty, ids) : true;
 
-    const blockers = this.rooms.startBlockers(room, eligible ? assignable : null);
-    if (blockers.length) { this.emit(socket, { t: 'notice', level: 'warn', code: 'cannot-start', text: blockers[0]! }); return; }
+      const blockers = this.rooms.startBlockers(room, eligible ? assignable : null);
+      if (blockers.length) return { blocked: true as const, notice: blockers[0]!, code: 'cannot-start' };
 
-    const assignment = await this.pool.assign(rules.difficulty as Difficulty, ids, eligible);
-    if (!assignment) { this.emit(socket, { t: 'notice', level: 'warn', code: 'no-puzzle', text: '지금은 이 난이도의 새 퍼즐이 없습니다 — 잠시 뒤 다시 시도하세요' }); return; }
+      const assignment = await this.pool.assign(rules.difficulty as Difficulty, ids, eligible);
+      if (!assignment) return { blocked: true as const, notice: '지금은 이 난이도의 새 퍼즐이 없습니다 — 잠시 뒤 다시 시도하세요', code: 'no-puzzle' };
 
-    const rankEligible = eligible && !assignment.fallback;
-    const matchId = `mt_${randomUUID().slice(0, 8)}`;
-    room.phase = 'playing';
-    room.currentMatchId = matchId;
-    room.lastActivityAtMs = Date.now();
-    await this.rooms.save(room);
+      const rankEligible = eligible && !assignment.fallback;
+      const matchId = `mt_${randomUUID().slice(0, 8)}`;
+      room.phase = 'playing';
+      room.currentMatchId = matchId;
+      room.lastActivityAtMs = Date.now();
+      await this.rooms.save(room);
+      return { blocked: false as const, room, rules, assignment, rankEligible, matchId };
+    });
+
+    if (prepared.blocked) {
+      this.emit(socket, { t: 'notice', level: 'warn', code: prepared.code, text: prepared.notice });
+      return;
+    }
+    const { room, rules, assignment, rankEligible, matchId } = prepared;
 
     await this.matches.startMatch({
       matchId, roomId: room.roomId, puzzleId: assignment.puzzle.puzzleId,
@@ -308,6 +342,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.lobbyTimer.unref?.();
   }
   stopLobbyLoop(): void { if (this.lobbyTimer) { clearInterval(this.lobbyTimer); this.lobbyTimer = null; } }
+  onModuleDestroy(): void { this.stopLobbyLoop(); }
 
   /** 룸에 다시 붙이기 — HTTP 로 참가한 뒤 소켓 쪽 상태를 맞춘다 */
   bindRoom(accountId: string, roomId: string | null): void {

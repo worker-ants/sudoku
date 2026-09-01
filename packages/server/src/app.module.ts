@@ -6,12 +6,12 @@ import { PuzzlePoolService } from './match/puzzle-pool.service.js';
 import { RankingService } from './ranking/ranking.service.js';
 import { RealtimeGateway } from './realtime/gateway.js';
 import { HttpController } from './http.controller.js';
-import { FileStateStore, stateFilePath } from './storage/file-state.store.js';
-import { PgliteResultStore } from './storage/pglite.store.js';
-import { RedisStateStore } from './storage/redis-state.store.js';
+import { SqlResultStore } from './storage/sql.store.js';
+import { driverFor } from './storage/sql.driver.js';
+import { createStateStore } from './storage/state.factory.js';
 import type { ResultStore, StateStore } from './storage/ports.js';
 import { CONFIG } from './config.js';
-import { getDataDir } from './runtime-config.js';
+import { getDataDir, getSchema } from './runtime-config.js';
 import { join } from 'node:path';
 
 @Module({
@@ -19,18 +19,12 @@ import { join } from 'node:path';
   providers: [
     {
       provide: 'StateStore',
-      useFactory: async (): Promise<StateStore> => {
-        if (CONFIG.redisUrl) {
-          const { default: Redis } = await import('ioredis');
-          return new RedisStateStore(new Redis(CONFIG.redisUrl) as never);
-        }
-        return new FileStateStore(stateFilePath(getDataDir()));
-      },
+      useFactory: (): Promise<StateStore> => createStateStore(getDataDir()),
     },
     {
       provide: 'ResultStore',
       useFactory: async (): Promise<ResultStore> => {
-        const store = new PgliteResultStore(join(getDataDir(), 'pg'));
+        const store = new SqlResultStore(driverFor(CONFIG.databaseUrl, join(getDataDir(), 'pg'), getSchema()));
         await store.init();
         return store;
       },

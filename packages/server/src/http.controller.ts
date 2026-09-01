@@ -83,7 +83,7 @@ export class HttpController {
       const before = await this.rooms.byCode(b.code);
       const wasEligible = before ? this.rooms.eligibility(before).eligible : false;
       const room = await this.rooms.join(acc, b.code);
-      const cleared = await this.rooms.reconcileEligibility(room, wasEligible);
+      const cleared = await this.rooms.reconcileEligibility(room.roomId, wasEligible);
       this.gateway.bindRoom(acc.accountId, room.roomId);
       this.gateway.pushRoom(room);            // 이미 있던 사람들에게도 새 명단이 가야 한다
       void this.gateway.pushLobby(true);

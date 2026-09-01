@@ -8,7 +8,7 @@ import { io, type Socket } from 'socket.io-client';
 import type { ClientMessage, ServerMessage } from '@sudoku/contracts';
 import { generatePuzzle, type Difficulty } from '@sudoku/core';
 import { AppModule } from '../src/app.module.js';
-import { setDataDir } from '../src/runtime-config.js';
+import { setDataDir, setSchema } from '../src/runtime-config.js';
 import { MatchService } from '../src/match/match.service.js';
 import { RealtimeGateway } from '../src/realtime/gateway.js';
 import { RoomService } from '../src/room/room.service.js';
@@ -24,6 +24,9 @@ export interface Harness {
 export async function startHarness(reuseDir?: string): Promise<Harness> {
   const dir = reuseDir ?? mkdtempSync(join(tmpdir(), 'sudoku-e2e-'));
   setDataDir(dir);
+  // DATABASE_URL 로 진짜 Postgres 에 붙는 경우, 하네스마다 제 스키마를 쓴다.
+  // 디렉터리에서 이름을 뽑으므로 재개(reuseDir)하면 같은 스키마로 돌아온다 — 복구 시험이 그것에 기댄다.
+  setSchema(`t_${dir.split(/[\\/]/).pop()!.replace(/[^a-zA-Z0-9]/g, '_')}`);
   const app = await NestFactory.create(AppModule, { logger: false, cors: { origin: true, credentials: true } });
   await app.listen(0);
   const url = await app.getUrl();
@@ -40,7 +43,17 @@ export async function startHarness(reuseDir?: string): Promise<Harness> {
       });
       return { givens: p.givens, solution: p.solution, puzzleId: p.puzzleId };
     },
-    async stop(keepDir = false) { setDataDir(null); await app.close(); if (!keepDir) rmSync(dir, { recursive: true, force: true }); },
+    async stop(keepDir = false) {
+      // 이어서 재개할 참이면 격리 설정을 그대로 둔다 — 재기동 복구 시험이 같은 자리를 봐야 한다.
+      if (!keepDir) { setDataDir(null); setSchema(null); }
+      await app.close();                 // 타이머부터 세운다 — 지운 스키마를 두드리면 안 된다
+      if (!keepDir) {
+        const d = db as unknown as { db?: { dropSchema?: () => Promise<void> } };
+        await d.db?.dropSchema?.();
+        await db.close();                // pg 풀도 함께 닫는다
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
   };
 }
 

@@ -84,8 +84,12 @@ describe('레이스 한 판 — 로그인부터 결과까지', () => {
   let started: MatchStarted;
 
   it('전원 준비 후 시작하면 원본 단서만 내려온다 — 정답은 오지 않는다', async () => {
+    // 인박스를 먼저 비운다 — until 은 남아 있던 옛 room:state 에도 걸리므로,
+    // 비우지 않으면 룰 변경이 적용되기 전에 다음 단계로 넘어간다.
+    host.clear(); guest.clear(); third.clear();
     host.send({ t: 'rules:update', patch: { difficulty: 'normal' } });
     await host.until('room:state', (m) => m.room.rules.difficulty === 'normal');
+    host.clear();
     for (const c of [guest, third]) c.send({ t: 'ready:toggle' });
     await host.until('room:state', (m) => m.room.members.filter((x) => x.ready).length === 2);
     host.clear(); guest.clear(); third.clear();
