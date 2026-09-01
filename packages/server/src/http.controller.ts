@@ -106,9 +106,11 @@ export class HttpController {
 
   @Get('rankings')
   async rankings() {
-    const season = seasonIndex(Date.now(), { epochMs: CONFIG.seasonEpochMs });
-    const b = await this.ranking.boards(season);
-    return { ...b, season, brackets: ALL_BRACKETS };
+    const index = seasonIndex(Date.now(), { epochMs: CONFIG.seasonEpochMs });
+    const b = await this.ranking.boards(index);
+    // `season` 은 시즌 순위표(배열)다. 시즌 번호는 `seasonIndex` 로 따로 나간다 —
+    // 이전에는 두 값이 같은 이름을 다퉈 번호가 순위표를 덮었고, 화면이 죽었다.
+    return { ...b, seasonIndex: index, brackets: ALL_BRACKETS };
   }
 
   @Get('records')

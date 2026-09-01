@@ -29,13 +29,19 @@ export default function App() {
   const [now, setNow] = useState(Date.now());
   const [view, setView] = useState<'lobby' | 'rankings'>('lobby');
   const clockSkew = useRef(0);
+  /** 채팅은 룸 안으로 한정된다(FTR-CHAT §1) — 룸이 바뀌면 이전 룸의 말이 남으면 안 된다. */
+  const roomIdRef = useRef<string | null>(null);
 
   const say = useCallback((t: string) => { setToast(t); setTimeout(() => setToast((x) => (x === t ? null : x)), 3200); }, []);
 
   const onMessage = useCallback((m: ServerMessage) => {
     switch (m.t) {
-      case 'room:state': setRoom(m.room); if (m.room.phase !== 'playing') { setMatch(null); setWindow_(null); } return;
-      case 'room:closed': setRoom(null); setMatch(null); setEnded(null); say(m.reason); return;
+      case 'room:state':
+        if (roomIdRef.current !== m.room.roomId) { roomIdRef.current = m.room.roomId; setChat([]); }
+        setRoom(m.room);
+        if (m.room.phase !== 'playing') { setMatch(null); setWindow_(null); }
+        return;
+      case 'room:closed': roomIdRef.current = null; setChat([]); setRoom(null); setMatch(null); setEnded(null); say(m.reason); return;
       case 'match:started':
         clockSkew.current = m.match.serverNowEpochMs - Date.now();
         setMatch(m.match); setCells([...m.match.givens]); setOwners({});
@@ -452,12 +458,30 @@ function ChatPanel({ chat, disabled }: { chat: ChatMessage[]; disabled: boolean 
   );
 }
 
+/** 랭킹 화면이 서버에서 받는 모양. `api<never>` 로 두면 이 파일의 오타를 타입 검사가 놓친다. */
+interface RankingBoards {
+  rating: { nickname: string; rating: number }[];
+  season: { nickname: string; points: number }[];
+  seasonIndex: number;
+  brackets: string[];
+}
+interface RecordRowView { adjustedFinishSec: number; holders: { nickname: string }[] }
+
 function Rankings() {
-  const [data, setData] = useState<{ rating: { nickname: string; rating: number }[]; season: { nickname: string; points: number }[]; brackets: string[] } | null>(null);
-  const [records, setRecords] = useState<{ adjustedFinishSec: number; holders: { nickname: string }[] }[]>([]);
+  const [data, setData] = useState<RankingBoards | null>(null);
+  const [records, setRecords] = useState<RecordRowView[]>([]);
   const [bracket, setBracket] = useState('race:normal');
-  useEffect(() => { void api<never>('/api/rankings').then((r) => r.ok && setData(r.data)); }, []);
-  useEffect(() => { void api<never>(`/api/records?bracket=${bracket}`).then((r) => r.ok && setRecords(r.data)); }, [bracket]);
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    void api<RankingBoards>('/api/rankings').then((r) => {
+      if (!r.ok) { setFailed(`랭킹을 불러오지 못했습니다 (${r.status})`); return; }
+      setData(r.data);
+    });
+  }, []);
+  useEffect(() => {
+    void api<RecordRowView[]>(`/api/records?bracket=${bracket}`).then((r) => r.ok && setRecords(r.data));
+  }, [bracket]);
+  if (failed) return <p className="muted" style={{ color: 'var(--danger)' }}>{failed}</p>;
   if (!data) return <p className="muted">불러오는 중…</p>;
   return (
     <div className="row" style={{ alignItems: 'flex-start' }}>
@@ -467,7 +491,7 @@ function Rankings() {
         {data.rating.map((x, i) => <div key={x.nickname} className="progress-row"><span>{i + 1}. {x.nickname}</span><span className="num">{x.rating}</span></div>)}
       </div>
       <div className="card" style={{ flex: 1, minWidth: 240 }}>
-        <h2>시즌 포인트</h2>
+        <h2>시즌 포인트 <span className="badge">시즌 {data.seasonIndex}</span></h2>
         {data.season.length === 0 && <p className="muted">아직 집계된 판이 없습니다.</p>}
         {data.season.map((x, i) => <div key={x.nickname} className="progress-row"><span>{i + 1}. {x.nickname}</span><span className="num">{x.points}</span></div>)}
       </div>

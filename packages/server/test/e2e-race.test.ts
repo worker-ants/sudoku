@@ -181,8 +181,16 @@ describe('레이스 한 판 — 로그인부터 결과까지', () => {
     await sleep(300);
     const hist = (await api(h, host, '/api/history')).body as unknown[];
     expect(hist).toHaveLength(1);
-    const rk = (await api(h, host, '/api/rankings')).body as { season: unknown; rating: unknown[]; season2?: unknown };
-    expect(rk).toHaveProperty('rating');
+    // 랭킹 화면이 의존하는 모양을 통째로 고정한다.
+    // `season`(순위표 배열)을 시즌 번호가 덮어써 화면이 죽은 적이 있다 — 배열인지까지 본다.
+    const rk = (await api(h, host, '/api/rankings')).body as
+      { rating: unknown[]; season: { nickname: string; points: number }[]; seasonIndex: number; brackets: string[] };
+    expect(Array.isArray(rk.rating)).toBe(true);
+    expect(Array.isArray(rk.season)).toBe(true);
+    expect(Array.isArray(rk.brackets)).toBe(true);
+    expect(typeof rk.seasonIndex).toBe('number');
+    expect(rk.season.length).toBeGreaterThan(0);        // 방금 판이 시즌 포인트로 올라갔다
+    expect(rk.season.every((x) => typeof x.nickname === 'string' && typeof x.points === 'number')).toBe(true);
     const rating = await h.db.getRating(host.accountId);
     expect(rating).not.toBeNull();
     expect(rating!.rankedMatches).toBe(1);
