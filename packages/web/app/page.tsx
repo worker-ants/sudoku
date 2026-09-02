@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  ChatMessage, LobbyRoomView, MatchEnded, MatchStarted, Progress, RoomView, ServerMessage, SubmitResult, SubmitWindow,
+  ChatMessage, Difficulty, LobbyRoomView, MatchEnded, MatchStarted, Progress, RoomView, Rules, ServerMessage, SubmitResult, SubmitWindow,
 } from '@sudoku/contracts';
 import { api, connect, disconnect, send } from '../lib/net';
 import { DIFF_LABEL, fmtSec, isFull, peersOf, violations } from '../lib/sudoku';
@@ -157,7 +157,7 @@ export default function App() {
       {ended && <Result ended={ended} me={me} onClose={() => setEnded(null)} isHost={room?.members.find((x) => x.accountId === me.accountId)?.isHost ?? false} />}
 
       {!room && view === 'lobby' && <Lobby lobby={lobby} onEnter={setRoom} say={say} />}
-      {!room && view === 'rankings' && <Rankings />}
+      {!room && view === 'rankings' && <Rankings me={me} />}
 
       {room && !match && !ended && <RoomPanel room={room} me={me} chat={chat} say={say} />}
 
@@ -232,11 +232,12 @@ export default function App() {
       )}
 
       {window_ && (
-        <div className="banner" role="alertdialog">
-          <p style={{ margin: 0, fontSize: 17 }}>
-            <strong>{window_.byNickname}</strong>님이 제출을 요청했습니다 —{' '}
-            <span className="num">{Math.max(0, Math.ceil((window_.endsAtEpochMs - serverNow) / 1000))}</span>
-          </p>
+        <div className="banner" role="alertdialog" aria-label="팀 제출">
+          <div className="eyebrow">팀 제출</div>
+          <p style={{ margin: '8px 0 0', fontSize: 17, fontWeight: 600 }}><strong>{window_.byNickname}</strong>님이 제출을 요청했습니다</p>
+          {/* 창이 닫히면 팀의 판이 끝난다 — 그 사실은 요청 문장과 카운트다운이 말한다(COOP §6.2 ①·⑤) */}
+          <div className="cnt"><span>{Math.max(0, Math.ceil((window_.endsAtEpochMs - serverNow) / 1000))}</span><small>초</small></div>
+          <p className="muted" style={{ margin: '2px 0 0' }}>이 동안은 누구도 칸을 고칠 수 없습니다</p>
           <button className="danger big" style={{ marginTop: 14 }}
             onClick={() => send({ t: 'submit:cancel' })}>취소</button>
         </div>
@@ -434,8 +435,8 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
   const r = room.rules;
   const patch = (p: Partial<typeof r>, follow?: boolean) => send({ t: 'rules:update', patch: p, followStandardLimit: follow });
   return (
-    <div className="row" style={{ alignItems: 'flex-start', gap: 24 }}>
-      <div className="col" style={{ flex: 1, minWidth: 320 }}>
+    <div className="roomgrid">
+      <div className="col">
         <div className="card">
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <h2 style={{ margin: 0 }}>{room.name}</h2>
@@ -455,38 +456,8 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
 
         <div className="card col">
           <h2>룰</h2>
-          <div className="row">
-            <label>모드
-              <select disabled={!isHost} value={r.mode} onChange={(e) => patch({ mode: e.target.value as 'race' | 'coop' })}>
-                <option value="race">레이스</option><option value="coop">협동</option>
-              </select>
-            </label>
-            <label>난이도
-              <select disabled={!isHost} value={r.difficulty} onChange={(e) => patch({ difficulty: e.target.value as never })}>
-                {Object.entries(DIFF_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </label>
-            <label>정원
-              <select disabled={!isHost} value={r.capacity} onChange={(e) => patch({ capacity: Number(e.target.value) })}>
-                {[2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="row">
-            <label>제한 시간
-              <input type="number" min={3} max={60} disabled={!isHost} value={Math.round(r.limitSec / 60)}
-                onChange={(e) => patch({ limitSec: Number(e.target.value) * 60 }, false)} style={{ width: 80 }} /> 분
-            </label>
-            <button disabled={!isHost} onClick={() => patch({}, true)}>표준값으로</button>
-            <label className="row" style={{ gap: 6 }}>
-              <input type="checkbox" disabled={!isHost} checked={r.violationDisplay === 'show'}
-                onChange={(e) => patch({ violationDisplay: e.target.checked ? 'show' : 'hide' })} /> 제약 위반 표시
-            </label>
-            <label className="row" style={{ gap: 6 }}>
-              <input type="checkbox" disabled={!isHost} checked={r.hintsAllowed}
-                onChange={(e) => patch({ hintsAllowed: e.target.checked })} /> 힌트 허용
-            </label>
-          </div>
+          <RulesGrid r={r} isHost={isHost} patch={patch}
+            nonStandardLimit={room.eligibility.reasons.some((x) => x.startsWith('제한 시간'))} />
           <p className="muted" style={{ margin: 0 }}>
             빈칸을 다 채우고 제약 위반이 없으면 제출할 수 있고, <strong>제출은 곧 완주</strong>입니다.
             보드를 다 채우기 전까지는 어떤 칸이 맞았는지 알 수 없습니다.
@@ -516,8 +487,66 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
           </div>
         </div>
       </div>
-      <div style={{ flex: 1, minWidth: 260 }}><ChatPanel chat={chat} disabled={false} /></div>
+      <ChatPanel chat={chat} disabled={false} />
     </div>
+  );
+}
+
+/**
+ * 룰 여섯 개를 3열 격자로 — 값이 몇 개 안 되는 항목은 세그먼트, 켜고 끄는 항목은 토글.
+ * "표준값" 여부는 클라이언트가 계산하지 않고 서버의 랭크 자격 사유(AREA-ROOM §7)를 읽는다 —
+ * 난이도별 표준 제한 시간표를 여기 한 벌 더 두면 언젠가 어긋난다.
+ */
+function RulesGrid({ r, isHost, patch, nonStandardLimit }: {
+  r: Rules; isHost: boolean; patch: (p: Partial<Rules>, follow?: boolean) => void; nonStandardLimit: boolean;
+}) {
+  return (
+    <div className="rules">
+      <div className="rule-cell"><span className="k">모드</span>
+        <Seg label="모드" value={r.mode} disabled={!isHost} onPick={(mode) => patch({ mode })}
+          options={[{ v: 'race' as const, label: '레이스' }, { v: 'coop' as const, label: '협동' }]} /></div>
+      <div className="rule-cell"><span className="k">난이도</span>
+        <Seg tight label="난이도" value={r.difficulty} disabled={!isHost} onPick={(difficulty) => patch({ difficulty })}
+          options={(Object.keys(DIFF_LABEL) as Difficulty[]).map((k) => ({ v: k, label: DIFF_LABEL[k]! }))} /></div>
+      <div className="rule-cell"><span className="k">정원</span>
+        <Seg label="정원" value={r.capacity} disabled={!isHost} onPick={(capacity) => patch({ capacity })}
+          options={[2, 3, 4, 5, 6, 7, 8].map((n) => ({ v: n, label: String(n) }))} /></div>
+      <div className="rule-cell"><span className="k">제한 시간</span>
+        <div className="lim">
+          <input type="number" min={3} max={60} disabled={!isHost} value={Math.round(r.limitSec / 60)} aria-label="제한 시간(분)"
+            onChange={(e) => patch({ limitSec: Number(e.target.value) * 60 }, false)} />
+          <span className="k">분{!nonStandardLimit && ' · 표준값'}</span>
+          {nonStandardLimit && <button className="ghost sm" disabled={!isHost} onClick={() => patch({}, true)}>표준값으로</button>}
+        </div></div>
+      <div className="rule-cell"><span className="k">제약 위반 표시</span>
+        <Switch label="제약 위반 표시" on={r.violationDisplay === 'show'} disabled={!isHost} onLabel="표시" offLabel="숨김"
+          onToggle={(on) => patch({ violationDisplay: on ? 'show' : 'hide' })} /></div>
+      <div className="rule-cell"><span className="k">힌트 허용</span>
+        <Switch label="힌트 허용" on={r.hintsAllowed} disabled={!isHost} onLabel="허용" offLabel="비허용"
+          onToggle={(on) => patch({ hintsAllowed: on })} /></div>
+    </div>
+  );
+}
+
+function Seg<T extends string | number>({ value, options, disabled, onPick, tight, label }: {
+  value: T; options: { v: T; label: string }[]; disabled: boolean; onPick: (v: T) => void; tight?: boolean; label: string;
+}) {
+  return (
+    <div className={tight ? 'seg tight' : 'seg'} role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={String(o.v)} type="button" aria-pressed={o.v === value} disabled={disabled}
+          onClick={() => { if (o.v !== value) onPick(o.v); }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+function Switch({ on, disabled, onToggle, onLabel, offLabel, label }: {
+  on: boolean; disabled: boolean; onToggle: (on: boolean) => void; onLabel: string; offLabel: string; label: string;
+}) {
+  return (
+    <button type="button" className="switch" role="switch" aria-checked={on} aria-label={label} disabled={disabled}
+      onClick={() => onToggle(!on)}><i aria-hidden />{on ? onLabel : offLabel}</button>
   );
 }
 
@@ -611,7 +640,7 @@ interface RankingBoards {
 }
 interface RecordRowView { adjustedFinishSec: number; holders: { nickname: string }[] }
 
-function Rankings() {
+function Rankings({ me }: { me: Me }) {
   const [data, setData] = useState<RankingBoards | null>(null);
   const [records, setRecords] = useState<RecordRowView[]>([]);
   const [bracket, setBracket] = useState('race:normal');
@@ -627,35 +656,53 @@ function Rankings() {
   }, [bracket]);
   if (failed) return <p className="muted" style={{ color: 'var(--danger)' }}>{failed}</p>;
   if (!data) return <p className="muted">불러오는 중…</p>;
+  const mine = (names: string[]) => names.includes(me.nickname);
   return (
-    <div className="row" style={{ alignItems: 'flex-start' }}>
-      <div className="card" style={{ flex: 1, minWidth: 240 }}>
-        <h2>레이팅</h2>
-        {data.rating.length === 0 && <p className="muted">배치 5판을 마친 사람이 아직 없습니다.</p>}
-        {data.rating.map((x, i) => <div key={x.nickname} className="progress-row"><span>{i + 1}. {x.nickname}</span><span className="num">{x.rating}</span></div>)}
+    <>
+      <div className="pagehead">
+        <div>
+          <h1>랭킹</h1>
+          <p className="muted" style={{ margin: 0 }}>시즌 <span className="num">{data.seasonIndex}</span> · 4주마다 초기화됩니다</p>
+        </div>
       </div>
-      <div className="card" style={{ flex: 1, minWidth: 240 }}>
-        <h2>시즌 포인트 <span className="badge">시즌 {data.seasonIndex}</span></h2>
-        {data.season.length === 0 && <p className="muted">아직 집계된 판이 없습니다.</p>}
-        {data.season.map((x, i) => <div key={x.nickname} className="progress-row"><span>{i + 1}. {x.nickname}</span><span className="num">{x.points}</span></div>)}
-      </div>
-      <div className="card" style={{ flex: 1, minWidth: 260 }}>
-        <h2>기록</h2>
-        <select value={bracket} onChange={(e) => setBracket(e.target.value)}>
-          {data.brackets.map((b) => <option key={b} value={b}>{b}</option>)}
-        </select>
-        {records.length === 0 && <p className="muted" style={{ marginTop: 8 }}>이 보드는 아직 비어 있습니다.</p>}
-        {records.map((x, i) => (
-          <div key={i} className="progress-row">
-            <span>{i + 1}. {x.holders.map((h) => h.nickname).join(', ')}</span>
-            <span className="num">{fmtSec(x.adjustedFinishSec)}</span>
+      {/* 세 축을 나란히 — 레이팅·시즌 포인트는 통합 1벌, 기록만 브래킷별이다(DSN-RANKING R6) */}
+      <div className="hairgrid">
+        <section>
+          <div className="hd"><h2>레이팅</h2><span className="muted">통합</span></div>
+          {data.rating.length === 0 && <div className="empty" style={{ marginTop: 14 }}>배치 <b className="num">5</b>판을 마친 사람이<br />아직 없습니다</div>}
+          {data.rating.map((x, i) => <RankRow key={x.nickname} i={i} names={[x.nickname]} mine={mine([x.nickname])} value={String(x.rating)} />)}
+        </section>
+        <section>
+          <div className="hd"><h2>시즌 포인트</h2><span className="muted">시즌 {data.seasonIndex}</span></div>
+          {data.season.length === 0 && <div className="empty" style={{ marginTop: 14 }}>아직 집계된 판이 없습니다</div>}
+          {data.season.map((x, i) => <RankRow key={x.nickname} i={i} names={[x.nickname]} mine={mine([x.nickname])} value={String(x.points)} />)}
+        </section>
+        <section>
+          <div className="hd"><h2>기록</h2>
+            <select value={bracket} onChange={(e) => setBracket(e.target.value)} aria-label="브래킷">
+              {data.brackets.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
           </div>
-        ))}
+          {records.length === 0 && <div className="empty" style={{ marginTop: 14 }}>이 보드는 아직 비어 있습니다</div>}
+          {records.map((x, i) => {
+            const names = x.holders.map((h) => h.nickname);
+            return <RankRow key={i} i={i} names={names} mine={mine(names)} value={fmtSec(x.adjustedFinishSec)} />;
+          })}
+        </section>
       </div>
-    </div>
+    </>
   );
 }
 
+function RankRow({ i, names, mine, value }: { i: number; names: string[]; mine: boolean; value: string }) {
+  return (
+    <div className={`progress-row${mine ? ' me' : ''}`}>
+      <span className={`rk${i === 0 ? ' first' : ''}`}>{i + 1}</span>
+      <span className="nm">{names.join(', ')}{mine && <span className="muted"> (나)</span>}</span>
+      <span className="num" style={{ fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
 // ── 결과 ────────────────────────────────────────────────────────────────────
 function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onClose: () => void; isHost: boolean }) {
   const mine = ended.boards.find((b) => b.accountId === me.accountId)?.cells ?? [];

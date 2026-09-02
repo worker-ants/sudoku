@@ -196,16 +196,51 @@ tr.me td{background:var(--accent-soft)}
 .empty{border:1px dashed var(--rule-strong);padding:22px;text-align:center;color:var(--ink3);
   font-size:13px;line-height:1.6}
 
+/* ── 룸 — 본문이 주 열, 채팅은 300px 레일(시안 ③). 룰 격자가 숨 쉴 폭이 여기서 나온다 ── */
+.roomgrid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}
+@media (max-width:900px){.roomgrid{grid-template-columns:minmax(0,1fr)}}
+
 /* ── 룰 격자 ────────────────────────────────────────────────────────────── */
 .rules{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
 @media (max-width:720px){.rules{grid-template-columns:1fr}}
 .rule-cell{background:var(--surface);padding:13px 15px;display:flex;flex-direction:column;gap:7px}
 .rule-cell > .k{font-size:11.5px;color:var(--ink3)}
+.rule-cell .seg{max-width:none}
+.seg.tight button{font-size:11.5px;padding:6px 0}
+.rule-cell .lim{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.rule-cell .lim input{width:64px;padding:4px 8px;font-family:var(--f-data);font-variant-numeric:tabular-nums;
+  font-size:19px;font-weight:600;text-align:right}
+/* 토글 — 켜짐이 강조색, 꺼짐은 룰 색. 라벨은 상태를 말로 한 번 더 한다 */
+.switch{display:inline-flex;align-items:center;gap:9px;border:0;background:transparent;padding:0;
+  font-size:12.5px;color:var(--ink3);border-radius:999px}
+.switch:hover:not(:disabled){border:0}
+.switch i{width:34px;height:19px;border-radius:999px;background:var(--rule-strong);position:relative;display:block;
+  flex:none;transition:background .15s}
+.switch i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+  background:#fff;transition:left .15s}
+.switch[aria-checked="true"]{color:var(--ink)}
+.switch[aria-checked="true"] i{background:var(--accent)}
+.switch[aria-checked="true"] i::after{left:17px}
+
+/* ── 3열 헤어라인 격자 — 랭킹의 세 축 ───────────────────────────────────── */
+.hairgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media (max-width:760px){.hairgrid{grid-template-columns:1fr}}
+.hairgrid > section{background:var(--surface);padding:16px 18px;min-width:0}
+.hairgrid .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+.hairgrid .hd h2{margin:0;font-size:14px}
+.hairgrid .hd select{padding:4px 8px;font-size:12px}
+.progress-row .rk{width:18px;flex:none}
+.progress-row.me{background:var(--accent-soft);margin:0 -18px;padding-left:18px;padding-right:18px}
 
 /* ── 취소 창 · 토스트 ───────────────────────────────────────────────────── */
 .banner{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;background:var(--surface);
   border:1px solid var(--rule-strong);border-top:3px solid var(--warn);border-radius:0;
   padding:20px 26px;text-align:center;min-width:340px;box-shadow:var(--shadow)}
+.banner .eyebrow{font-family:var(--f-data);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600}
+.banner .cnt{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:44px;font-weight:600;
+  color:var(--warn);line-height:1.1;margin-top:6px}
+.banner .cnt small{font-size:18px;font-weight:600}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;background:var(--ink);
   color:var(--bg);padding:10px 16px;border-radius:3px;font-size:13px;max-width:80vw}
 
@@ -233,6 +268,8 @@ tr.me td{background:var(--accent-soft)}
 .seg button{flex:1;border:0;border-radius:0;background:transparent;color:var(--ink2);padding:7px 0;font-size:13px}
 .seg button:hover:not(:disabled){border:0;color:var(--accent)}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+/* 호버 규칙(특이도 0,3,1)이 선택 상태를 이겨 글자가 배경색과 같아지던 것을 막는다 */
+.seg button[aria-pressed="true"]:hover:not(:disabled){color:var(--accent-ink)}
 .field{display:flex;flex-direction:column;gap:5px}
 .field > span{font-size:12.5px;color:var(--ink2);font-weight:500}
 @media (max-width:760px){
