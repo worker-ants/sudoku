@@ -313,36 +313,50 @@ function Auth({ onDone }: { onDone: (m: Me) => void }) {
     onDone(r.data);
   };
   return (
-    <div className="wrap" style={{ maxWidth: 420 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1>스도쿠</h1>
-          <p className="muted">여럿이 함께 푸는 스도쿠</p>
+    <div className="auth" style={{ position: 'relative' }}>
+      <div className="auth-top"><Settings /></div>
+      <div className="auth-panel">
+        {/* 왼쪽은 이 제품이 무엇인지 한 번에 말한다 — 브랜드가 처음 서는 자리다 */}
+        <div className="auth-hero">
+          <Wordmark />
+          <div className="lede">여럿이 같은 퍼즐을<br />같은 시각에</div>
+          <p>
+            겨루거나(레이스) 함께 풉니다(협동). 한 판의 승부는 룸 안에서 끝나고,
+            쌓인 전적이 랭킹이 됩니다.
+          </p>
+          <div className="auth-facts">
+            <div><div className="v">5</div><div className="k">난이도</div></div>
+            <div><div className="v">2</div><div className="k">모드</div></div>
+            <div><div className="v">3</div><div className="k">랭킹 축</div></div>
+          </div>
         </div>
-        <Settings />
-      </div>
-      <div className="card col" style={{ marginTop: 20 }}>
-        <div className="row">
-          <button className={mode === 'signup' ? 'primary' : ''} onClick={() => setMode('signup')}>가입</button>
-          <button className={mode === 'login' ? 'primary' : ''} onClick={() => setMode('login')}>로그인</button>
-        </div>
-        {mode === 'signup' && (
-          <label className="col" style={{ gap: 4 }}>닉네임
-            <input value={f.nickname} onChange={(e) => setF({ ...f, nickname: e.target.value })} placeholder="2~16자" />
+
+        <div className="auth-form">
+          <div className="seg">
+            <button aria-pressed={mode === 'signup'} onClick={() => setMode('signup')}>가입</button>
+            <button aria-pressed={mode === 'login'} onClick={() => setMode('login')}>로그인</button>
+          </div>
+          {mode === 'signup' && (
+            <label className="field"><span>닉네임</span>
+              <input value={f.nickname} onChange={(e) => setF({ ...f, nickname: e.target.value })} placeholder="2~16자" />
+            </label>
+          )}
+          <label className="field"><span>이메일</span>
+            <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && submit()} placeholder="로그인 ID 로만 쓰입니다" />
           </label>
-        )}
-        <label className="col" style={{ gap: 4 }}>이메일
-          <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="로그인 ID 로만 쓰입니다" />
-        </label>
-        <label className="col" style={{ gap: 4 }}>비밀번호
-          <input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
-            onKeyDown={(e) => e.key === 'Enter' && submit()} placeholder="8자 이상" />
-        </label>
-        {err && <p style={{ color: 'var(--danger)', margin: 0 }}>{err}</p>}
-        <button className="primary" onClick={submit}>{mode === 'signup' ? '가입하고 시작' : '로그인'}</button>
-        <p className="muted" style={{ margin: 0 }}>
-          ※ 비밀번호 찾기는 아직 지원하지 않습니다. 이메일은 로그인 ID 로만 쓰이며, 어떤 메일도 보내지 않습니다.
-        </p>
+          <label className="field"><span>비밀번호</span>
+            <input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && submit()} placeholder="8자 이상" />
+          </label>
+          {err && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 13 }}>{err}</p>}
+          <button className="primary big" style={{ justifyContent: 'center' }} onClick={submit}>
+            {mode === 'signup' ? '가입하고 시작' : '로그인'}
+          </button>
+          <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
+            비밀번호 찾기는 아직 지원하지 않습니다. 이메일은 로그인 ID 로만 쓰이며, 어떤 메일도 보내지 않습니다.
+          </p>
+        </div>
       </div>
     </div>
   );
