@@ -145,7 +145,12 @@ export interface GenerateOutcome {
 
 /** 3·4단계 — 등급 판정과 채택/폐기 */
 export function generatePuzzle(target: Difficulty, opts: GenerateOptions = {}): GenerateOutcome {
-  const maxAttempts = opts.maxAttempts ?? 60;
+  /**
+   * 기본 400. 등급이 올라갈수록 시도 수가 급격히 늘어난다 — 악몽 등급은 12표본 측정에서
+   * 중앙 86회·최대 193회였고, **이전 기본값 60 으로는 16번 중 7번만 성공했다.**
+   * 운영 경로(퍼즐 풀)는 진작 400 을 넘기고 있었으므로 기본값만 그 자리로 맞춘다.
+   */
+  const maxAttempts = opts.maxAttempts ?? 400;
   const now = opts.now ?? (() => Date.now());
   let seed = opts.seed ?? (Math.random() * 2 ** 31) | 0;
   const discardedAs: GenerateOutcome['discardedAs'] = {};
