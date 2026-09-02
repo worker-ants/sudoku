@@ -199,7 +199,7 @@ export const SUBMIT_WINDOW_MS = 5000;
 export const SUBMIT_COOLDOWN_MS = 10000;
 
 /** 협동 — 5초 취소 창을 연다. 스냅샷·타이머·입력 잠금 전부 서버가 갖는다(O7) */
-export function requestTeamSubmit(m: MatchState, accountId: string, nowMs: number): { ok: boolean; reason?: string; endsAtMs?: number; isLast?: boolean } {
+export function requestTeamSubmit(m: MatchState, accountId: string, nowMs: number): { ok: boolean; reason?: string; endsAtMs?: number } {
   const p = m.participants.get(accountId);
   if (!p || m.mode !== 'coop') return { ok: false, reason: 'not-coop' };
   const t = m.team!;
@@ -209,7 +209,7 @@ export function requestTeamSubmit(m: MatchState, accountId: string, nowMs: numbe
   const blocked = submitBlockedReason(m, accountId);
   if (blocked) return { ok: false, reason: blocked };
   t.window = { byAccountId: accountId, openedAtMs: nowMs, endsAtMs: nowMs + SUBMIT_WINDOW_MS, snapshot: [...t.cells] };
-  return { ok: true, endsAtMs: t.window.endsAtMs, isLast: t.submitsUsed === SUBMIT_LIMIT - 1 };
+  return { ok: true, endsAtMs: t.window.endsAtMs };
 }
 
 export function cancelTeamSubmit(m: MatchState, accountId: string, nowMs: number): { ok: boolean; reason?: string } {
@@ -223,7 +223,7 @@ export function cancelTeamSubmit(m: MatchState, accountId: string, nowMs: number
   return { ok: true };
 }
 
-/** 창이 끝나면 **누른 순간의 스냅샷**을 채점한다 */
+/** 창이 끝나면 **누른 순간의 스냅샷**으로 완주를 확정한다 — 채점이 아니라 확인이다(N6) */
 export function fireTeamSubmit(m: MatchState, nowMs: number): { fired: boolean; outcome?: SubmitOutcome } {
   if (m.mode !== 'coop') return { fired: false };
   const t = m.team!;

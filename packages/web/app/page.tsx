@@ -237,7 +237,6 @@ export default function App() {
             <strong>{window_.byNickname}</strong>님이 제출을 요청했습니다 —{' '}
             <span className="num">{Math.max(0, Math.ceil((window_.endsAtEpochMs - serverNow) / 1000))}</span>
           </p>
-          {window_.isLastSubmit && <p style={{ color: 'var(--danger)', margin: '8px 0 0' }}>마지막 제출입니다. 실패하면 이 판은 완주할 수 없습니다.</p>}
           <button className="danger big" style={{ marginTop: 14 }}
             onClick={() => send({ t: 'submit:cancel' })}>취소</button>
         </div>

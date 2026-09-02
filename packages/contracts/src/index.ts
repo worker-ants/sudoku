@@ -124,14 +124,17 @@ export interface SubmitResult {
   finishedAtElapsedSec: number;
 }
 
-/** 협동 5초 취소 창 — 서버가 소유한다(COOP O7) */
+/**
+ * 협동 5초 취소 창 — 서버가 소유한다(COOP O7).
+ * "마지막 제출" 플래그는 **없다** — 제출은 통과하면 팀의 판이 끝나므로 첫 제출이 곧
+ * 마지막이고, 실패하는 제출은 게이트 위에서 성립하지 않는다(AREA-PLAY §1.3.1 · N6).
+ */
 export interface SubmitWindow {
   state: 'open' | 'cancelled' | 'fired';
   byAccountId: string;
   byNickname: string;
   cancelledByNickname?: string;
   endsAtEpochMs: number;
-  isLastSubmit: boolean;
   cooldownUntilEpochMs?: number;
 }
 

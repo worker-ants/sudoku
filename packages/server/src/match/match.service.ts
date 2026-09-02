@@ -162,7 +162,7 @@ export class MatchService implements OnModuleDestroy {
       if (fired.fired && fired.outcome) {
         this.broadcast(m.roomId, { t: 'submit:window', window: {
           state: 'fired', byAccountId: by,
-          byNickname: m.participants.get(by)?.nickname ?? '', endsAtEpochMs: now, isLastSubmit: false,
+          byNickname: m.participants.get(by)?.nickname ?? '', endsAtEpochMs: now,
         } });
         this.broadcast(m.roomId, { t: 'submit:result', result: {
           passed: true, submitsUsed: fired.outcome.submitsUsed, submitsLimit: SUBMIT_LIMIT,
@@ -226,7 +226,7 @@ export class MatchService implements OnModuleDestroy {
     const p = m.participants.get(accountId)!;
     this.broadcast(m.roomId, { t: 'submit:window', window: {
       state: 'open', byAccountId: accountId, byNickname: p.nickname,
-      endsAtEpochMs: r.endsAtMs!, isLastSubmit: r.isLast ?? false,
+      endsAtEpochMs: r.endsAtMs!,
     } });
     await this.persist(m);
   }
@@ -240,7 +240,7 @@ export class MatchService implements OnModuleDestroy {
     this.broadcast(m.roomId, { t: 'submit:window', window: {
       state: 'cancelled', byAccountId: win.byAccountId,
       byNickname: m.participants.get(win.byAccountId)?.nickname ?? '',
-      cancelledByNickname: p.nickname, endsAtEpochMs: now, isLastSubmit: false,
+      cancelledByNickname: p.nickname, endsAtEpochMs: now,
       cooldownUntilEpochMs: m.team!.cooldownUntilMs,
     } });
     await this.persist(m);
