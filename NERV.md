@@ -6,8 +6,8 @@
 
 | 파일 | 무엇 | git |
 | --- | --- | --- |
-| `.mcp.json` | MCP 서버 `nerv` — 도구 18종이 여기로 온다. 토큰·프로젝트는 `${NERV_TOKEN}`·`${NERV_PROJECT}` 로 받는다 | 커밋됨 |
-| `.claude/settings.json` | 훅 6종(세션·도구·서브에이전트·정지·종료) · statusline. **비밀 값 없음** | 커밋됨 |
+| `.mcp.json` | MCP 서버 `nerv` — 도구 22종이 여기로 온다(MVP 20종 + 리뷰 2종). 토큰·프로젝트는 `${NERV_TOKEN}`·`${NERV_PROJECT}` 로 받는다 | 커밋됨 |
+| `.claude/settings.json` | 훅 6종(세션·도구·서브에이전트·정지·종료) — 세션 시작은 **둘**이다(적재 + outbox 비우기) · statusline. **비밀 값 없음** | 커밋됨 |
 | `.claude/settings.local.json` | `NERV_SERVER`·`NERV_PROJECT`·`NERV_TOKEN` | **무시**(토큰) |
 | `.nerv/env` | 같은 값을 파일로 — 훅 포워더·statusline·`nerv` CLI 가 읽는다 | **무시** |
 | `.claude/skills/nerv-*/` | 스킬 6종(`next`·`spec`·`impl`·`question`·`import`·`review`) | 커밋됨 |
@@ -33,6 +33,8 @@ sed 's|/nerv:\([a-z]*\)|/nerv-\1|g' "$SRC/agents/nerv-spec-writer.md" \
 statusline 은 원본을 그대로 부르므로 클레임이 없을 때 `/nerv:next` 라고 쓴다 — 여기서는 `/nerv-next` 로 읽는다(플러그인으로 설치하면 그대로 맞는 문구다).
 
 훅은 사본이 아니라 **손으로 옮긴 목록**이다 — 원본 `hooks/hooks.json` 에 훅이 늘면 `.claude/settings.json` 에도 같은 항목을 더한다(원본은 `type:"http"`, 여기는 토큰 주입 포워더라 `type:"command"`).
+
+한 이벤트에 훅이 **여럿**일 수 있다 — 2026-09-01 에 `SessionStart` 가 둘이 됐다(세션 적재 + `nerv-outbox flush`). 원본에서 이벤트 이름만 보고 "이미 있다"고 넘기면 늘어난 쪽을 놓친다.
 
 ## 토큰
 
@@ -84,6 +86,20 @@ statusline 은 원본을 그대로 부르므로 클레임이 없을 때 `/nerv:n
 
 그래서 **인수인계 문서의 "도구 함정" 목록은 더 이상 유효하지 않다** — 세션 인자를 손으로 챙기거나 UUID 를 따로 받아 둘 필요가 없다.
 
+## 서버 쪽이 바뀐 것 (2026-09-01)
+
+스킬 두 편(`nerv-spec`·`nerv-review`)과 `.claude/settings.json` 의 훅 하나가 이 날짜로 갱신됐다. 나머지는 **계약이 바뀐 것**이고, 이 저장소에서 부르는 방식이 달라지는 것만 적는다.
+
+| 무엇 | 전 | 후 |
+| --- | --- | --- |
+| **시안 첨부** | 스펙에 그림을 붙일 길이 없어 외부 링크로 떠돌았다 — 그 링크는 스펙의 버전과 무관하게 바뀐다 | `nerv_spec_attach` **2단계**(주소 받기 → PUT → 확정). png·jpeg·gif·webp·svg·pdf · 파일당 10MB. 확정 뒤 **본문에 `![…](url)` 로 넣는다** — 매달기만 하면 읽는 사람은 그 그림을 못 본다 |
+| **발견의 대상 축** | 발견에 "어디에 대한 말인가" 가 없어 목록에서 미리 나눌 수 없었다 | `nerv_review_submit` 의 발견에 `area` — `codebase`·`spec`·`task`·`process`. **비워 두면 서버가 유추하고 화면에 "추론됨" 이라 적힌다**. 아는 것은 직접 적는다 |
+| **사람이 보낸 메시지** | 세션 화면에서 보낸 지시가 **아무에게도 가지 않았다**(꺼내 주는 경로는 있었는데 부르는 곳이 없었다) | 하트비트의 `pending` **맨 앞**에 실려 온다. 한 번만 온다. `stop` 은 다르다 — 클레임을 그 자리에서 회수하므로 다음 하트비트가 `NERV_LEASE_EXPIRED` 로 끝나고, **그 오류가 곧 정지 신호**다 |
+| **세션 시작** | outbox 는 "다음 스킬 턴" 에만 비워졌다 — 서버가 죽은 동안 큐잉하고 세션을 끝내면 그 쓰기가 언제 갈지 몰랐다 | `SessionStart` 가 `nerv-outbox flush` 를 함께 돌린다. 멱등 키가 그대로라 중복 실행은 없다 |
+| **활동 원문** | 타임라인이 도구 이름만 남겨 `Bash / Bash` 가 반복됐다 | `tool_input`·`tool_response` **원문**이 남는다(비밀은 적재 시점에 마스킹). 원문 열람은 **세션 본인과 admin** 뿐 — 이 저장소의 토큰은 `admin@example.com` 이라 다 보인다 |
+| **스펙을 고쳐 닫기** | 구현이 맞고 스펙이 틀린 지적을 닫을 정직한 처분이 없었다 | `nerv_finding_resolve` 의 `resolution=spec_change` + `spec_version_id`. 커밋 없는 `fixed` 로 우기거나 `dismissed` 로 닫지 않는다 |
+| **버전 비교** | 스펙의 버전 목록이 누를 수 없는 글자였다 | 웹에서 `?diff=vN-1..vN` · `?v=N` · 임의의 두 판 비교. 요구사항 델타가 본문 diff 보다 먼저 온다 |
+
 ## 문서를 서로 잇는 법 (2026-08-30)
 
 **관계는 본문의 링크에서만 만들어진다.** 다른 문서를 가리킬 때는 링크로 쓴다 — 산문에 키를 적거나 "게임플레이 §3"처럼 제목으로 부르면 관계가 생기지 않는다.
@@ -106,6 +122,7 @@ statusline 은 원본을 그대로 부르므로 클레임이 없을 때 `/nerv:n
 - 앞서 시험 삼아 만들었던 `jimin@example.com` 토큰은 **폐기했다**(폐기 후 401 을 확인했다)
 - 시험으로 만든 세션 행은 지웠다 — 세션 화면은 비어 있는 상태에서 시작한다
 - **바뀐 계약을 이 설정 그대로 확인했다**(2026-08-30 · 이 저장소의 토큰·헤더로): `nerv_bootstrap` → **`session_id` 없이** `nerv_question_create`(출처 `SUD-VISION` · 사유 `user-decision` · 선택지 2개) 성공 → `nerv_spec_get` 이 **키와 UUID 둘 다** 같은 문서를 준다. 확인용으로 만든 질문·세션은 지웠다
+- **사본을 다시 맞췄다**(2026-09-02): 스킬 6종·서브에이전트가 원본과 이름 두 군데를 뺀 바이트 단위로 같고, `SessionStart` 의 둘째 훅(`nerv-outbox flush`)을 `.claude/settings.json` 에 옮겼다
 - 스킬·서브에이전트 사본이 원본과 **바이트 단위로 같다**(아래 재동기화 스크립트를 돌려 대조했다 — 바뀐 것이 없었다)
 - **`nerv_spec_submit_review` 가 T1 문서를 그 자리에서 승인한다**(2026-08-31 · 스펙 15편 제출에서 13편이 `approved`, 규약 2편이 `in_review`). 위 "제출이 곧 승인이 되는 경우" 참조 — 이 저장소의 토큰·헤더로 확인한 동작이다
 

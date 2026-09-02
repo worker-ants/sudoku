@@ -9,6 +9,7 @@ allowed-tools:
   - mcp__nerv__nerv_spec_get
   - mcp__nerv__nerv_spec_draft_upsert
   - mcp__nerv__nerv_spec_relate
+  - mcp__nerv__nerv_spec_attach
   - mcp__nerv__nerv_spec_check
   - mcp__nerv__nerv_spec_comment_resolve
   - mcp__nerv__nerv_question_create
@@ -76,6 +77,21 @@ allowed-tools:
 - 노드 이름은 화면에 그대로 보이므로 **사람이 읽는 말**로 쓴다. 식별자를 그대로 쓰지 않는다.
 - 문법이 틀리면 화면은 그림 대신 코드와 함께 실패를 알린다 — 그림이 사라지지는 않지만 사람이 고쳐야 하므로, 확신이 없으면 단순한 형태로 쓴다.
 - 그림은 **본문을 대신하지 않는다.** 그림만 있고 문장이 없으면 검색에도 안 걸리고 요구사항 추출에도 잡히지 않는다.
+
+## 시안·문서는 첨부한다
+
+**디자인 시안이 문서 밖에 있으면 문서가 아니다.** 외부 링크는 스펙의 버전과 무관하게 바뀌므로, "이 판이 말하는 화면" 을 나중에 되짚을 수 없다.
+
+`nerv_spec_attach` 는 **두 단계**다 — 응답에 파일을 싣지 않기 위해서다(base64 를 실으면 그 세션의 컨텍스트 예산이 그것으로 찬다).
+
+1. `nerv_spec_attach`(`spec_id`, `filename`, `content_type`) → `upload_url` 과 `attachment_id` 를 받는다.
+2. 그 주소에 파일을 그대로 `PUT` 한다(헤더는 `Content-Type` 만).
+3. `nerv_spec_attach`(`attachment_id`) → 확정. **서버가 실제로 올라왔는지 확인한 뒤** 목록에 넣는다.
+
+- 받는 형식은 `png`·`jpeg`·`gif`·`webp`·`svg`·`pdf` 여섯이고 파일당 **10MB** 까지다.
+- 확정하면 응답의 `url` 을 **본문에 이미지로 넣는다**: `![시안 이름](그 주소)`. 매달기만 하고 본문에 안 넣으면 문서를 읽는 사람은 그 그림을 못 본다.
+- 그림만 두지 않는다 — 무엇을 보여 주는 시안인지 문장으로 적는다. 그림은 검색에도 요구사항 추출에도 잡히지 않는다.
+- 흐름·구조는 그림 파일보다 mermaid 가 낫다(위 절) — 첨부는 **손으로 그린 시안·캡처·PDF** 의 자리다.
 
 ## 서브커맨드
 

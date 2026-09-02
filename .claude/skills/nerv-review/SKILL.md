@@ -24,6 +24,9 @@ clemvion에서 리뷰 산출물은 `review/**`에 markdown으로 커밋됐고, �
      무엇을 말하는지 알 수 없다 — `body`는 왜 문제인가, `suggestion`은 무엇을 하면 되는가다.
    - `file`·`line`·`symbol`을 채운다. 위치 없는 지적은 사람이 다시 찾아야 한다.
    - 스펙에서 나온 지적이면 `spec_version_id`·`requirement_id`를 채운다 — 이것이 리뷰 출처 추적(P5)의 유일한 근거다.
+   - **`area`로 무엇을 고쳐야 하는지 말한다** — `codebase`(구현) / `spec`(명세) / `task`(작업 정의·범위) /
+     `process`(규약·게이트·도구). severity가 얼마나 급한가라면 이것은 **다음에 누가 무엇을 여는가**다.
+     비워 두면 서버가 짚은 대상으로 유추하고 화면에 "추론됨"이라 적히므로, 아는 것은 직접 적는다.
 4. **응답을 읽는다** — `findings_new`(새로 열린 것)·`findings_merged`(이미 있던 것)·`carried_over`(이 프로젝트에 열려 있는 전부)·`block`. **`findings_merged`에 든 것을 다시 서술하지 않는다** — 같은 지적은 fingerprint로 하나의 Finding에 합쳐진다.
 
 발견이 0건이어도 제출한다. "봤고 문제가 없었다"는 라운드가 있어야 게이트가 그것을 통과로 읽는다.

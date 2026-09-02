@@ -9,6 +9,11 @@
             "type": "command",
             "command": "/Volumes/project/private/nerv/codebase/plugin/bin/nerv-hook-forward session",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/Volumes/project/private/nerv/codebase/plugin/bin/nerv-outbox flush",
+            "timeout": 20
           }
         ]
       }
