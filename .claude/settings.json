@@ -1,5 +1,5 @@
 {
-  "$comment": "NERV 연동 — 훅(세션·도구·서브에이전트 텔레메트리)과 statusline. 비밀 값은 없다(settings.local.json 이 갖는다).",
+  "$comment": "NERV 연동 — 훅(세션·도구·서브에이전트 텔레메트리)과 statusline. 비밀 값은 없다(settings.local.json 이 갖는다). 훅과 statusline 은 nerv 저장소의 플러그인 스크립트를 절대 경로로 부르고, .claude/skills 와 .claude/agents 는 그 플러그인의 사본이다 — 원본이 바뀌었을 때 다시 맞추는 절차는 nerv/codebase/plugin/README.md 의 \"마켓플레이스 없이 쓰는 저장소\" 절.",
   "hooks": {
     "SessionStart": [
       {
