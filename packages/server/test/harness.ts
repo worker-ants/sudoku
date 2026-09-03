@@ -12,13 +12,36 @@ import { setDataDir, setSchema } from '../src/runtime-config.js';
 import { MatchService } from '../src/match/match.service.js';
 import { RealtimeGateway } from '../src/realtime/gateway.js';
 import { RoomService } from '../src/room/room.service.js';
-import type { ResultStore } from '../src/storage/ports.js';
+import type { ResultStore, StateStore } from '../src/storage/ports.js';
+import { CONFIG } from '../src/config.js';
 
 export interface Harness {
   app: INestApplication; url: string; dir: string;
   db: ResultStore; matches: MatchService; rooms: RoomService; gateway: RealtimeGateway;
   seedPuzzle(difficulty: Difficulty, seed?: number): Promise<{ givens: number[]; solution: number[]; puzzleId: string }>;
   stop(keepDir?: boolean): Promise<void>;
+}
+
+/**
+ * 룸 잠금이 빌 때까지 기다린다.
+ *
+ * `app.close()` 는 **소켓 종료 처리를 기다리지 않는다.** 소켓이 닫히면 게이트웨이의
+ * handleDisconnect 가 룸 잠금 뒤에서 상태 저장소를 읽는데, 그 사이에 저장소를 닫으면
+ * ioredis 가 "Connection is closed" 로 터진다 — 시험은 통과하면서 unhandled rejection 만
+ * 쌓이는 종류다.
+ *
+ * 고정 sleep 대신 잠금이 실제로 비었는지 본다. **연속 두 번** 비어야 끝내는 이유는,
+ * 아직 시작도 안 한 핸들러가 있으면 첫 관측이 0 으로 나오기 때문이다.
+ */
+async function settleRooms(rooms: RoomService, timeoutMs = 3000): Promise<void> {
+  const lock = (rooms as unknown as { lock: { size: number } }).lock;
+  const until = Date.now() + timeoutMs;
+  let idle = 0;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 10));
+    idle = lock.size === 0 ? idle + 1 : 0;
+    if (idle >= 2) return;
+  }
 }
 
 export async function startHarness(reuseDir?: string): Promise<Harness> {
@@ -31,6 +54,7 @@ export async function startHarness(reuseDir?: string): Promise<Harness> {
   await app.listen(0);
   const url = await app.getUrl();
   const db = app.get<ResultStore>('ResultStore');
+  const state = app.get<StateStore>('StateStore');
   return {
     app, url: url.replace('[::1]', '127.0.0.1'), dir, db,
     matches: app.get(MatchService), rooms: app.get(RoomService), gateway: app.get(RealtimeGateway),
@@ -43,15 +67,34 @@ export async function startHarness(reuseDir?: string): Promise<Harness> {
       });
       return { givens: p.givens, solution: p.solution, puzzleId: p.puzzleId };
     },
+    /**
+     * 하네스를 접는다.
+     *
+     * `keepDir` 는 **프로세스가 죽는 시늉**이다 — 재기동 복구 시험이 같은 자리로 돌아와야
+     * 하므로 남긴 상태와 격리 설정을 지우지 않는다. 그래도 **연결은 닫는다**: 죽은
+     * 프로세스는 소켓을 들고 있지 않고, 두 저장소 모두 Nest 종료 훅이 없어 app.close()
+     * 로는 닫히지 않는다(app.module.ts 의 useFactory 두 개).
+     */
     async stop(keepDir = false) {
-      // 이어서 재개할 참이면 격리 설정을 그대로 둔다 — 재기동 복구 시험이 같은 자리를 봐야 한다.
-      if (!keepDir) { setDataDir(null); setSchema(null); }
-      await app.close();                 // 타이머부터 세운다 — 지운 스키마를 두드리면 안 된다
+      await app.close();                 // 타이머부터 세운다 — 지운 자리를 두드리면 안 된다
+      await settleRooms(app.get(RoomService));
+
       if (!keepDir) {
+        // 남긴 상태를 지운다. 파일 어댑터는 아래 rmSync 로 통째 사라지지만 **Redis 에는
+        // 그런 것이 없어**, 지우지 않으면 이 하네스의 이름공간이 서버에 그대로 쌓인다.
+        // rmSync 의 대응물이 여기다.
+        if (CONFIG.redisUrl) for (const k of await state.keys('')) await state.del(k);
+        // 스키마 삭제는 풀을 닫기 전에 — 닫은 뒤에 부르면 풀을 다시 여는 꼴이 된다
         const d = db as unknown as { db?: { dropSchema?: () => Promise<void> } };
         await d.db?.dropSchema?.();
-        await db.close();                // pg 풀도 함께 닫는다
+      }
+
+      await state.close();
+      await db.close();
+
+      if (!keepDir) {
         rmSync(dir, { recursive: true, force: true });
+        setDataDir(null); setSchema(null);   // 정리를 끝낸 뒤에 격리를 푼다
       }
     },
   };
