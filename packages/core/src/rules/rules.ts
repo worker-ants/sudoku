@@ -23,7 +23,12 @@ export const MEDIAN_FINISH_SEC: Record<Difficulty, [number, number]> = {
 };
 export const CASUAL_LIMIT_MIN_SEC = 3 * 60;
 export const CASUAL_LIMIT_MAX_SEC = 60 * 60;
-export const CAPACITY_MIN = 2;
+/**
+ * 정원 하한이 1인 이유 — 혼자 하는 판을 허용하기 때문이다(READY §2 조건 2).
+ * 정원 1은 "아무도 들여보내지 않는 1인 방"이라는 뜻이고, 정원 2 이상인 방에 혼자
+ * 있는 것과는 다르다 — 그쪽은 도중에 누가 들어오면 여럿이 된다.
+ */
+export const CAPACITY_MIN = 1;
 export const CAPACITY_MAX = 8;
 
 export const DEFAULT_RULES: Rules = {

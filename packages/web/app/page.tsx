@@ -532,7 +532,7 @@ function RulesGrid({ r, isHost, patch, nonStandardLimit }: {
           options={(Object.keys(DIFF_LABEL) as Difficulty[]).map((k) => ({ v: k, label: DIFF_LABEL[k]! }))} /></div>
       <div className="rule-cell"><span className="k">정원</span>
         <Seg label="정원" value={r.capacity} disabled={!isHost} onPick={(capacity) => patch({ capacity })}
-          options={[2, 3, 4, 5, 6, 7, 8].map((n) => ({ v: n, label: String(n) }))} /></div>
+          options={[1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ v: n, label: String(n) }))} /></div>
       <div className="rule-cell"><span className="k">제한 시간</span>
         <div className="lim">
           <input type="number" min={3} max={60} disabled={!isHost} value={Math.round(r.limitSec / 60)} aria-label="제한 시간(분)"

@@ -18,7 +18,7 @@ export type ViolationDisplay = 'show' | 'hide';
 export interface Rules {
   mode: Mode;
   difficulty: Difficulty;
-  capacity: number;          // 2~8
+  capacity: number;          // 1~8
   limitSec: number;          // 180~3600
   violationDisplay: ViolationDisplay;
   hintsAllowed: boolean;

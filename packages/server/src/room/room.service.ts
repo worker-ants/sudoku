@@ -318,11 +318,16 @@ export class RoomService {
     return evaluateEligibility({ rules: room.ruleState.rules, memberCount: room.members.length, puzzleAssignable });
   }
 
-  /** 시작 조건 다섯 (READY §2). 다섯 번째는 서버에서만 알 수 있다 */
+  /**
+   * 시작 조건 넷 (READY §2). 마지막 하나는 서버에서만 알 수 있다.
+   *
+   * 인원 하한은 없다 — 혼자서도 시작한다. 랭크가 새지 않는 것은 여기가 아니라
+   * 랭크 자격이 막는다(MIN_PLAYERS 레이스 3 · 협동 2). 1인 판은 정의상 캐주얼이라
+   * 레이팅·시즌·기록 어디에도 오르지 않는다.
+   */
   startBlockers(room: RoomState, puzzleAssignable: boolean | null): string[] {
     const out: string[] = [];
     if (room.phase !== 'waiting') out.push('대기 중에만 시작할 수 있습니다');
-    if (room.members.length < 2) out.push('혼자서는 시작할 수 없습니다');
     const notReady = room.members.filter((m) => m.accountId !== room.hostAccountId && !m.ready);
     if (notReady.length) out.push(`${notReady.map((m) => m.nickname).join(', ')}님이 준비하지 않았습니다`);
     if (room.members.length > room.ruleState.rules.capacity) out.push('정원을 넘었습니다');
