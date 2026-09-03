@@ -1,3 +1,5 @@
+// .env 를 먼저 싣는다 — CONFIG 가 import 시점에 process.env 를 읽으므로 순서가 규약이다(env.ts)
+import './env.js';
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
