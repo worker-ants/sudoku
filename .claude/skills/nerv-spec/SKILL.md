@@ -135,8 +135,7 @@ convention-compliance / requirement-shape / task-coherence) 결과를 warning/bl
 
 ### submit — 검토 요청 (A3 · 사람 승인 필수)
 1. 먼저 check를 돌려 block이 없음을 확인한다.
-2. `nerv_spec_submit_review`(`spec_version_id`, `note`, 필요 시 `reviewer_hint`)를
-   호출한다. 이 도구는 allowed-tools에 없다 — **매 호출 사람 승인을 거치는 것이 정상이다.**
+2. `nerv_spec_submit_review`(`spec_version_id`)를 호출한다. 이 도구는 allowed-tools에 없다 — **매 호출 사람 승인을 거치는 것이 정상이다.**
    승인 대기(`NERV_APPROVAL_REQUIRED`)면 `approval_id`로 상태를 폴링하고,
    그동안 다른 작업을 시작하지 않는다.
 3. 성공 응답의 `web_url`을 터미널에 표시한다. 같은 `spec_version_id` 재호출은 기존
