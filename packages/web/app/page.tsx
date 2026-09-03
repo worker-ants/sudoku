@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ChatMessage, Difficulty, LobbyRoomView, MatchEnded, MatchStarted, Progress, RoomView, Rules, ServerMessage, SubmitResult, SubmitWindow,
 } from '@sudoku/contracts';
@@ -13,6 +13,20 @@ type Me = { accountId: string; nickname: string; email: string };
 
 /** 참가자 색 — 진행률 아바타와 협동의 칸 소유 표시가 같은 벌을 쓴다 */
 const AVATAR_COLORS = ['#2a3bb5', '#12795c', '#b26a00', '#8a2f8f', '#0f6b8f', '#a33a3a', '#4a5568', '#1f7a5c'];
+
+/**
+ * 전송으로 받아도 되는 Enter 인지.
+ *
+ * 한글 IME 는 Enter 로 조합을 확정한다. 그 Enter 를 전송으로 받으면 확정 전 값이 먼저 나가고
+ * 입력창이 비는데, 곧이어 IME 가 확정한 마지막 글자가 그 빈 창에 들어간다. macOS 크롬은 같은
+ * Enter 를 확정 뒤에 한 번 더 던지므로 그 글자까지 두 번째 말로 나간다 — "ㅅㅅ" 뒤에 "ㅅ" 이
+ * 따라붙던 것이 이것이다.
+ *
+ * 조합 중인 Enter 는 IME 의 것이지 우리 것이 아니다. 흘려보내면 입력창이 온전한 값을 그대로
+ * 들고 있다가, 확정 뒤에 오는 Enter 가 그것을 한 번만 보낸다. (두 번째 Enter 를 안 주는
+ * 브라우저에서는 확정 Enter · 전송 Enter 로 두 번 누르게 되는데, IME 를 쓰는 다른 앱과 같다.)
+ */
+const isSubmitEnter = (e: ReactKeyboardEvent) => e.key === 'Enter' && !e.nativeEvent.isComposing;
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -351,11 +365,11 @@ function Auth({ onDone }: { onDone: (m: Me) => void }) {
           )}
           <label className="field"><span>이메일</span>
             <input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })}
-              onKeyDown={(e) => e.key === 'Enter' && submit()} placeholder="로그인 ID 로만 쓰입니다" />
+              onKeyDown={(e) => { if (isSubmitEnter(e)) submit(); }} placeholder="로그인 ID 로만 쓰입니다" />
           </label>
           <label className="field"><span>비밀번호</span>
             <input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })}
-              onKeyDown={(e) => e.key === 'Enter' && submit()} placeholder="8자 이상" />
+              onKeyDown={(e) => { if (isSubmitEnter(e)) submit(); }} placeholder="8자 이상" />
           </label>
           {err && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 13 }}>{err}</p>}
           <button className="primary big" style={{ justifyContent: 'center' }} onClick={submit}>
@@ -632,7 +646,7 @@ function ChatPanel({ chat, disabled }: { chat: ChatMessage[]; disabled: boolean 
       <div className="row">
         <input value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} style={{ flex: 1 }}
           placeholder={disabled ? '랭크 레이스 판은 진행 중 닫힙니다 — 결과 화면에서 다시 열립니다' : '메시지'}
-          onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) { send({ t: 'chat:send', text }); setText(''); } }} />
+          onKeyDown={(e) => { if (isSubmitEnter(e) && text.trim()) { send({ t: 'chat:send', text }); setText(''); } }} />
         <button disabled={disabled || !text.trim()} onClick={() => { send({ t: 'chat:send', text }); setText(''); }}>보내기</button>
       </div>
     </div>
