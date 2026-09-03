@@ -143,7 +143,7 @@ export default function App() {
           <Wordmark />
           <div className="row" style={{ gap: 6 }}>
             {!room && <button className="ghost sm" onClick={() => setView(view === 'lobby' ? 'rankings' : 'lobby')}>{view === 'lobby' ? '랭킹' : '로비'}</button>}
-            <span className="topbar-sep sep" />
+            <span className="sep" />
             <span className="badge">{me.nickname}</span>
             <Settings />
             <button className="ghost sm" onClick={async () => { await api('/api/auth/logout', 'POST'); disconnect(); setMe(null); setRoom(null); }}>로그아웃</button>
@@ -266,32 +266,39 @@ function Wordmark() {
 function Settings() {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>('system');
+  const btn = useRef<HTMLButtonElement>(null);
   // 서버 렌더 결과와 어긋나지 않도록 마운트 후에 읽는다
   useEffect(() => { setTheme(readTheme()); }, []);
+  // 열려 있는 동안만 Esc 를 듣는다 — 닫을 때 포커스는 트리거로 돌려준다
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setOpen(false); btn.current?.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
 
   const pick = (t: Theme) => { setTheme(t); saveTheme(t); };
 
   return (
     <div style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open}>설정</button>
+      {/* 톱바의 다른 항목과 같은 조용한 버튼이다 — 여기서 상자를 두르면 화면의 주 동작처럼 읽힌다 */}
+      <button ref={btn} className="ghost sm" aria-haspopup="dialog" aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}>설정</button>
       {open && (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div className="card" role="dialog" aria-label="개인 설정"
-            style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 41, minWidth: 236, padding: 14 }}>
-            <h3 style={{ marginBottom: 10 }}>개인 설정</h3>
-            <p className="muted" style={{ margin: '0 0 6px' }}>테마</p>
-            <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-              {THEMES.map((t) => (
-                <button key={t} className={theme === t ? 'primary' : ''} aria-pressed={theme === t}
-                  onClick={() => pick(t)} style={{ flex: 1, padding: '7px 0', fontSize: 13 }}>
-                  {THEME_LABEL[t]}
-                </button>
-              ))}
+          <div className="pop-scrim" onClick={() => setOpen(false)} />
+          <div className="panel pop" role="dialog" aria-label="개인 설정">
+            <div className="hd"><h3>개인 설정</h3></div>
+            <div className="bd col" style={{ gap: 8 }}>
+              <p className="muted" style={{ margin: 0 }}>테마</p>
+              <Seg value={theme} disabled={false} label="테마" onPick={pick}
+                options={THEMES.map((t) => ({ v: t, label: THEME_LABEL[t] }))} />
+              <p className="muted" style={{ margin: 0, lineHeight: 1.5 }}>
+                시스템은 기기 설정을 따릅니다. 이 브라우저에만 저장되며 서버로 가지 않습니다.
+              </p>
             </div>
-            <p className="muted" style={{ margin: '10px 0 0', fontSize: 12, lineHeight: 1.5 }}>
-              시스템은 기기 설정을 따릅니다. 이 브라우저에만 저장되며 서버로 가지 않습니다.
-            </p>
           </div>
         </>
       )}
@@ -301,7 +308,7 @@ function Settings() {
 
 // ── 인증 ────────────────────────────────────────────────────────────────────
 function Auth({ onDone }: { onDone: (m: Me) => void }) {
-  const [mode, setMode] = useState<'login' | 'signup'>('signup');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [f, setF] = useState({ email: '', nickname: '', password: '' });
   const [err, setErr] = useState<string | null>(null);
   const submit = async () => {
@@ -332,9 +339,10 @@ function Auth({ onDone }: { onDone: (m: Me) => void }) {
         </div>
 
         <div className="auth-form">
+          {/* 기본으로 선택된 쪽이 앞에 온다 — 세그먼트는 왼쪽부터 읽힌다 */}
           <div className="seg">
-            <button aria-pressed={mode === 'signup'} onClick={() => setMode('signup')}>가입</button>
             <button aria-pressed={mode === 'login'} onClick={() => setMode('login')}>로그인</button>
+            <button aria-pressed={mode === 'signup'} onClick={() => setMode('signup')}>가입</button>
           </div>
           {mode === 'signup' && (
             <label className="field"><span>닉네임</span>

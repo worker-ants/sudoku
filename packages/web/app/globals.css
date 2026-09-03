@@ -244,6 +244,20 @@ tr.me td{background:var(--accent-soft)}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;background:var(--ink);
   color:var(--bg);padding:10px 16px;border-radius:3px;font-size:13px;max-width:80vw}
 
+/* ── 떠 있는 면 — 팝오버 ────────────────────────────────────────────────
+   붙어 있는 면(.card/.panel)은 헤어라인만으로 충분하지만, 떠 있는 면은 뒤의 내용과
+   겹친다. 그래서 시스템에서 떠 있는 다른 면(.banner)과 같은 어휘를 쓴다 —
+   굵은 룰과 그림자. 구조는 .panel > .hd/.bd 를 그대로 물려받고,
+   .pop 은 "이건 떠 있다"만 말한다. */
+.panel.pop{position:absolute;right:0;top:calc(100% + 8px);z-index:41;min-width:272px;
+  border-color:var(--rule-strong);box-shadow:var(--shadow)}
+.panel.pop .seg{max-width:none}      /* .rule-cell .seg 와 같은 이유 — 폭은 팝오버가 정한다 */
+.pop-scrim{position:fixed;inset:0;z-index:40}
+/* 메뉴를 연 트리거는 열려 있는 동안 눌린 채로 있다. 강조색은 쓰지 않는다 —
+   accent 는 "지금 내 것"의 색이지 열린 메뉴의 색이 아니다(머리말 규칙 ②).
+   :hover 규칙(0,3,1)이 이것(0,2,1)을 이기지만 배경은 건드리지 않아 눌린 상태는 남는다. */
+button.ghost[aria-expanded="true"]{background:var(--sunk);color:var(--ink)}
+
 /* ── 채팅 ───────────────────────────────────────────────────────────────── */
 .chat{height:200px;overflow-y:auto;border:1px solid var(--rule);border-radius:0;padding:10px;
   background:var(--sunk);font-size:13px;display:flex;flex-direction:column;gap:6px}
