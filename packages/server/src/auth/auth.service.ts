@@ -78,7 +78,8 @@ export class AuthService {
   async createSession(accountId: string): Promise<string> {
     const sessionId = randomBytes(24).toString('base64url');
     const now = Date.now();
-    await this.state.set<Session>(`session:${sessionId}`, { sessionId, accountId, createdAtMs: now, lastSeenMs: now });
+    // 저장소에도 같은 수명을 건다 — 읽을 때만 판정하면 다시 읽히지 않는 세션이 영영 남는다
+    await this.state.set<Session>(`session:${sessionId}`, { sessionId, accountId, createdAtMs: now, lastSeenMs: now }, CONFIG.sessionTtlMs);
     return sessionId;
   }
   /** 30일 슬라이딩 — 활동할 때마다 연장한다 */
@@ -88,7 +89,7 @@ export class AuthService {
     if (!s) return null;
     if (Date.now() - s.lastSeenMs > CONFIG.sessionTtlMs) { await this.state.del(`session:${sessionId}`); return null; }
     s.lastSeenMs = Date.now();
-    await this.state.set(`session:${sessionId}`, s);
+    await this.state.set(`session:${sessionId}`, s, CONFIG.sessionTtlMs);   // 다시 쓰면 수명도 밀린다 = 슬라이딩
     const acc = await this.db.findAccountById(s.accountId);
     return acc ? { accountId: acc.accountId, nickname: acc.nickname, email: acc.email } : null;
   }

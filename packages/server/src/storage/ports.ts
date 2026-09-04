@@ -7,7 +7,14 @@
  */
 export interface StateStore {
   get<T>(key: string): Promise<T | null>;
-  set<T>(key: string, value: T): Promise<void>;
+  /**
+   * `ttlMs` 를 주면 그 시간이 지난 뒤 스스로 사라진다.
+   *
+   * 만료를 읽는 쪽에서만 판정하면(예: 세션의 30일) **다시 읽히지 않는 키는 영영 남는다** —
+   * 버려진 세션이 정확히 그렇다. 수명이 정해진 값은 저장소가 직접 지우게 한다.
+   * 같은 키에 다시 쓰면 수명도 새로 시작한다(슬라이딩).
+   */
+  set<T>(key: string, value: T, ttlMs?: number): Promise<void>;
   del(key: string): Promise<void>;
   keys(prefix: string): Promise<string[]>;
   close(): Promise<void>;

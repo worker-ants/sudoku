@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PgliteResultStore } from '../src/storage/sql.store.js';
 import { FileStateStore } from '../src/storage/file-state.store.js';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -88,6 +88,54 @@ describe('진행 중 상태 — 재시작을 견딘다', () => {
     expect(await b.get('match:m1')).toEqual({ matchId: 'm1', cells: [1, 2, 3], submitsUsed: 2 });
     expect(await b.keys('match:')).toEqual(['match:m1']);
     await b.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('수명을 준 값은 스스로 사라진다 — 읽는 쪽이 판정하지 않는다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sudoku-ttl-'));
+    const file = join(dir, 'state.json');
+    const s = new FileStateStore(file);
+    await s.set('session:live', { a: 1 }, 60_000);
+    await s.set('session:soon', { a: 2 }, 40);
+    await s.set('room:forever', { a: 3 });                  // 수명 없음
+
+    expect(await s.get('session:soon')).toEqual({ a: 2 });
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(await s.get('session:soon')).toBeNull();          // 만료
+    expect(await s.get('session:live')).toEqual({ a: 1 });
+    expect(await s.get('room:forever')).toEqual({ a: 3 });
+    expect((await s.keys('')).sort()).toEqual(['room:forever', 'session:live']);   // 목록에서도 빠진다
+    await s.close();
+
+    // 만료는 재시작을 견딘다 — 파일에 만료 시각이 함께 적힌다
+    const again = new FileStateStore(file);
+    expect(await again.get('session:soon')).toBeNull();
+    expect(await again.get('session:live')).toEqual({ a: 1 });
+    await again.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('같은 키에 다시 쓰면 수명도 새로 시작한다 (슬라이딩)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sudoku-ttl2-'));
+    const s = new FileStateStore(join(dir, 'state.json'));
+    await s.set('session:x', { n: 1 }, 60);
+    await new Promise((r) => setTimeout(r, 40));
+    await s.set('session:x', { n: 2 }, 60);                  // 연장
+    await new Promise((r) => setTimeout(r, 40));
+    expect(await s.get('session:x')).toEqual({ n: 2 });      // 첫 수명(60ms)은 이미 지났다
+    await s.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('수명 개념이 없던 옛 파일도 그대로 읽는다 (v1 형식)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sudoku-v1-'));
+    const file = join(dir, 'state.json');
+    writeFileSync(file, JSON.stringify({ 'room:r1': { roomId: 'r1' }, 'session:s1': { a: 1 } }), 'utf8');
+    const s = new FileStateStore(file);
+    expect(await s.get('room:r1')).toEqual({ roomId: 'r1' });
+    expect((await s.keys('')).sort()).toEqual(['room:r1', 'session:s1']);
+    await s.close();
     rmSync(dir, { recursive: true, force: true });
   });
 });

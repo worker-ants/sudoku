@@ -40,6 +40,9 @@ export class RoomError extends Error {
 
 const roomKey = (id: string) => `room:${id}`;
 const codeKey = (code: string) => `roomcode:${code.toUpperCase()}`;
+const reservedKey = (code: string) => `roomcode-reserved:${code.toUpperCase()}`;
+/** 닫힌 룸의 코드는 24시간 동안 다시 쓰지 않는다 (AREA-ROOM §4 · L2) */
+export const CODE_RESERVE_MS = 24 * 60 * 60_000;
 const membershipKey = (accountId: string) => `membership:${accountId}`;
 
 @Injectable()
@@ -81,7 +84,7 @@ export class RoomService {
   private async _create(account: { accountId: string; nickname: string }, opts: { name?: string; isPublic?: boolean } = {}): Promise<RoomState> {
     await this.assertCanJoinElsewhere(account.accountId);
     let code = generateRoomCode();
-    for (let i = 0; i < 20 && (await this.state.get<string>(codeKey(code))); i++) code = generateRoomCode();
+    for (let i = 0; i < 20 && !(await this.isCodeFree(code)); i++) code = generateRoomCode();
     const now = Date.now();
     const room: RoomState = {
       roomId: `rm_${randomUUID().slice(0, 8)}`, code,
@@ -242,11 +245,25 @@ export class RoomService {
     return { closed, emptyDuringMatch };
   }
 
+  /**
+   * 이 코드를 지금 새 룸에 줄 수 있는가.
+   *
+   * 살아 있는 코드뿐 아니라 **회수된 지 24시간이 안 된 코드**도 막는다(L2) — 그러지 않으면
+   * 어제의 링크를 누른 사람이 엉뚱한 룸에 들어간다. 예약은 TTL 로 스스로 풀리므로
+   * 여기서 시각을 비교하지 않는다.
+   */
+  async isCodeFree(code: string): Promise<boolean> {
+    if (await this.state.get<string>(codeKey(code))) return false;
+    return !(await this.state.get<number>(reservedKey(code)));
+  }
+
   async destroy(room: RoomState): Promise<void> {
     for (const m of room.members) await this.state.del(membershipKey(m.accountId));
     await this.state.del(roomKey(room.roomId));
     await this.state.del(codeKey(room.code));   // 코드 회수 — 재사용은 24시간 뒤부터(L2)
-    await this.state.set(`roomcode-reserved:${room.code}`, Date.now());
+    // 예약은 스스로 만료된다. 24시간을 읽는 쪽에서 재던 이전 방식은 **아무도 읽지 않아**
+    // 실제로는 걸리지 않았고, 키만 영영 쌓였다.
+    await this.state.set(reservedKey(room.code), Date.now(), CODE_RESERVE_MS);
   }
 
   closeByHost(hostAccountId: string): Promise<string> {

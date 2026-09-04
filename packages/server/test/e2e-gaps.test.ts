@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { api, signUp, sleep, startHarness, type Client, type Harness } from './harness.js';
+import type { StateStore } from '../src/storage/ports.js';
 
 /**
  * 문서에는 있는데 구현이 따라오지 않았던 것들 (2026-09-04 대조)
@@ -59,6 +60,32 @@ describe('스펙 대조에서 드러난 구멍들', () => {
       expect((await guest.next('notice')).code).toBe('not-host');
       host.close(); guest.close();
     }, 30000);
+  });
+
+  describe('룸 코드 재사용 금지 24시간 (ROOM §4 · L2)', () => {
+    it('닫힌 룸의 코드는 예약되어 새 룸에 다시 나가지 않는다', async () => {
+      const c = await signUp(h, 'CodeA');
+      const room = (await api(h, c, '/api/rooms', 'POST', {})).body as { code: string };
+      expect(await h.rooms.isCodeFree(room.code)).toBe(false);       // 살아 있으니 당연히 막힌다
+
+      c.send({ t: 'room:close' });
+      await sleep(300);
+
+      // 코드는 회수됐지만(참가 불가) 24시간 예약이 걸려 재발급도 막힌다 — 이전에는 여기가 뚫려 있었다
+      expect((await api(h, c, '/api/rooms/join', 'POST', { code: room.code })).status).toBeGreaterThanOrEqual(400);
+      expect(await h.rooms.isCodeFree(room.code)).toBe(false);
+      c.close();
+    }, 30000);
+
+    it('예약은 스스로 만료된다 — 읽는 쪽이 24시간을 재지 않는다', async () => {
+      // 앱이 쓰는 바로 그 저장소여야 한다 — 파일 어댑터는 인스턴스마다 제 Map 을 들고 있어
+      // 따로 만들면 같은 파일을 봐도 서로의 쓰기를 못 본다
+      const store = h.app.get<StateStore>('StateStore');
+      await store.set('roomcode-reserved:ZZZZZZ', Date.now(), 40);
+      expect(await h.rooms.isCodeFree('ZZZZZZ')).toBe(false);
+      await sleep(90);
+      expect(await h.rooms.isCodeFree('ZZZZZZ')).toBe(true);
+    }, 20000);
   });
 
   describe('칸 이력 (COOP §7.2)', () => {

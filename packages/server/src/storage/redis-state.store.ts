@@ -4,6 +4,8 @@ import type { StateStore } from './ports.js';
 interface MinimalRedis {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<unknown>;
+  /** PX — 밀리초 단위 만료. ioredis 의 가변 인자 형태를 좁게 받아 쓴다 */
+  set(key: string, value: string, mode: 'PX', ttlMs: number): Promise<unknown>;
   del(key: string): Promise<unknown>;
   keys(pattern: string): Promise<string[]>;
   quit(): Promise<unknown>;
@@ -23,7 +25,11 @@ export class RedisStateStore implements StateStore {
     const raw = await this.client.get(this.ns + key);
     return raw === null ? null : (JSON.parse(raw) as T);
   }
-  async set<T>(key: string, value: T): Promise<void> { await this.client.set(this.ns + key, JSON.stringify(value)); }
+  async set<T>(key: string, value: T, ttlMs?: number): Promise<void> {
+    const raw = JSON.stringify(value);
+    if (ttlMs !== undefined && ttlMs > 0) await this.client.set(this.ns + key, raw, 'PX', Math.ceil(ttlMs));
+    else await this.client.set(this.ns + key, raw);
+  }
   async del(key: string): Promise<void> { await this.client.del(this.ns + key); }
   /** 이름공간은 저장소 안쪽 사정이라, 돌려줄 때는 떼어 낸다. */
   async keys(prefix: string): Promise<string[]> {
