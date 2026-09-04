@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>스도쿠 UI 시안 — SUD-DSN-UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/*
+ * 스도쿠 UI — 신문 퍼즐면의 격자, 스코어보드의 시계
+ *
+ * 세 규칙만 지키면 나머지는 따라온다.
+ *   ① 격자가 레이아웃 규칙이다 — 1px 헤어라인으로 안을 나누고, 2px 룰로 구역을 묶는다.
+ *      보드 안에서도 칸 사이는 헤어라인, 3×3 박스 사이는 룰이다. 라운드는 최대 3px.
+ *   ② 색은 한 가지 일만 한다 — 강조(--accent)는 "지금 내 것"에만. 상태는 good·warn·bad 가 맡는다.
+ *   ③ 숫자에 전용 서체를 준다 — 보드·타이머·순위·포인트는 Archivo, 본문은 IBM Plex Sans KR.
+ *
+ * 테마는 세 상태다 (ADR-STACK §4.5 · S5).
+ *   속성 없음          = system — 아래 미디어 쿼리가 일한다
+ *   [data-theme=light] = 명시적 라이트 — OS 가 다크여도 이긴다
+ *   [data-theme=dark]  = 명시적 다크 — OS 가 라이트여도 이긴다
+ * 색은 반드시 이 세 자리에서만 정의한다. 미디어 쿼리 안에만 있는 색은
+ * 속성 없는 기본 상태에서 비어 화면이 깨진다.
+ */
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --sunk:#eef1f5;
+  --ink:#101420; --ink2:#545b6b; --ink3:#8b93a3;
+  --rule:#e3e7ee;            /* 헤어라인 1px */
+  --rule-strong:#c4cbd8;     /* 박스 룰 2px · 컨트롤 테두리 */
+  --accent:#2a3bb5; --accent-soft:#eef0fb; --accent-ink:#ffffff;
+  --good:#12795c; --good-soft:#e4f2ee;
+  --warn:#b26a00; --warn-soft:#fbf0dd;
+  --danger:#c0332b; --danger-soft:#fbe9e7;
+  --given:#101420; --entered:#2a3bb5; --violation:#c0332b;
+  --hint:#b26a00; --hint-soft:#fbf0dd;
+  --shadow:0 10px 30px -18px rgba(16,20,32,.55);
+
+  --f-text:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-data:"Archivo",ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c0f16; --surface:#141924; --sunk:#10141d;
+    --ink:#e7eaf2; --ink2:#a3abbd; --ink3:#727b8e;
+    --rule:#222836; --rule-strong:#39425a;
+    --accent:#8fa0ff; --accent-soft:#1b2138; --accent-ink:#0c0f16;
+    --good:#5cc7a4; --good-soft:#12261f;
+    --warn:#e0a444; --warn-soft:#291f0f;
+    --danger:#f08a80; --danger-soft:#2b1614;
+    --given:#e7eaf2; --entered:#8fa0ff; --violation:#f08a80;
+    --hint:#e0a444; --hint-soft:#291f0f;
+    --shadow:0 10px 30px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c0f16; --surface:#141924; --sunk:#10141d;
+  --ink:#e7eaf2; --ink2:#a3abbd; --ink3:#727b8e;
+  --rule:#222836; --rule-strong:#39425a;
+  --accent:#8fa0ff; --accent-soft:#1b2138; --accent-ink:#0c0f16;
+  --good:#5cc7a4; --good-soft:#12261f;
+  --warn:#e0a444; --warn-soft:#291f0f;
+  --danger:#f08a80; --danger-soft:#2b1614;
+  --given:#e7eaf2; --entered:#8fa0ff; --violation:#f08a80;
+  --hint:#e0a444; --hint-soft:#291f0f;
+  --shadow:0 10px 30px -18px rgba(0,0,0,.8);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink); min-height:100vh;
+  font-family:var(--f-text); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── 컨트롤 ─────────────────────────────────────────────────────────────── */
+button{font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;
+  border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);
+  border-radius:3px;padding:8px 15px;line-height:1.2}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:hover:not(:disabled){filter:brightness(1.1);color:var(--accent-ink)}
+button.ghost{border-color:transparent;background:transparent;color:var(--ink2)}
+button.ghost:hover:not(:disabled){color:var(--accent);border-color:transparent}
+button.danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+button.danger:hover:not(:disabled){border-color:var(--danger);color:var(--danger)}
+button.big{padding:12px 22px;font-size:15px;font-weight:600}
+button.sm{padding:5px 10px;font-size:12.5px}
+input,select{font:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--rule-strong);
+  border-radius:3px;background:var(--surface);color:var(--ink)}
+input::placeholder{color:var(--ink3)}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+a{color:var(--accent)}
+
+/* ── 셸과 위계 ──────────────────────────────────────────────────────────── */
+.topbar{position:sticky;top:0;z-index:30;background:var(--surface);
+  border-bottom:1px solid var(--rule);height:56px;display:flex;align-items:center}
+.topbar .inner{max-width:1200px;margin:0 auto;padding:0 22px;width:100%;
+  display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{font-family:var(--f-data);font-weight:700;font-size:16px;letter-spacing:-.02em;
+  display:flex;align-items:center;gap:9px;color:var(--ink)}
+.brand .mk{width:20px;height:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:1.5px;flex:none}
+.brand .mk i{background:var(--rule-strong);display:block;border-radius:.5px}
+.brand .mk i:nth-child(1),.brand .mk i:nth-child(5),.brand .mk i:nth-child(9){background:var(--accent)}
+.topbar .sep{width:1px;height:18px;background:var(--rule)}
+
+.wrap{max-width:1200px;margin:0 auto;padding:26px 22px 72px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.col{display:flex;flex-direction:column;gap:12px}
+
+h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0 0 2px}
+h2{font-size:16px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px}
+h3{font-size:14px;font-weight:600;margin:0 0 8px}
+.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}
+.muted{color:var(--ink3);font-size:12.5px}
+.num{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-weight:500}
+
+/* 패널 — 그림자 대신 헤어라인 */
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:0;padding:16px 18px}
+.panel{background:var(--surface);border:1px solid var(--rule)}
+.panel > .hd{padding:12px 16px;border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.panel > .hd h2,.panel > .hd h3{margin:0;font-size:13px;font-weight:600}
+.panel > .bd{padding:14px 16px}
+
+/* ── 상태 어휘 — 성격이 다르면 색도 다르다 ─────────────────────────────── */
+.badge{font-family:var(--f-data);display:inline-flex;align-items:center;gap:5px;
+  font-size:11px;font-weight:600;letter-spacing:.04em;padding:3px 9px;border-radius:999px;
+  background:var(--sunk);color:var(--ink2)}
+.badge.rank{background:var(--accent-soft);color:var(--accent)}
+.badge.ok{background:var(--good-soft);color:var(--good)}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.no{background:var(--danger-soft);color:var(--danger)}
+.badge .dot{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}
+
+/* ── 표 ─────────────────────────────────────────────────────────────────── */
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-family:var(--f-data);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600;padding:0 12px 8px;border-bottom:1px solid var(--rule)}
+td{padding:11px 12px;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-family:var(--f-data);font-variant-numeric:tabular-nums}
+tr.me td{background:var(--accent-soft)}
+.rk{font-family:var(--f-data);font-weight:700;font-size:15px}
+.rk.first{color:var(--accent)}
+
+/* ── 보드 ───────────────────────────────────────────────────────────────── */
+/* 칸 사이는 헤어라인(--rule), 3×3 박스 사이는 룰(--rule-strong). 두 굵기가 실제로 갈린다. */
+.board{display:grid;grid-template-columns:repeat(9,1fr);gap:1px;background:var(--rule);
+  border:2px solid var(--rule-strong);border-radius:0;width:min(92vw,560px);aspect-ratio:1}
+.cell{position:relative;background:var(--surface);border:0;border-radius:0;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--f-data);font-size:clamp(16px,4.4vw,26px);font-weight:500;color:var(--entered);
+  padding:0;margin:0;transition:background .1s}
+/* 단서는 배경이 아니라 잉크와 굵기로 구분한다 — 인쇄된 퍼즐처럼 */
+.cell.given{color:var(--given);font-weight:600}
+.cell.peer{background:color-mix(in srgb,var(--accent-soft) 55%,var(--surface))}
+.cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
+.cell.bad{color:var(--violation);background:var(--danger-soft)}
+.cell.hint{box-shadow:inset 0 0 0 2px var(--hint);background:var(--hint-soft)}
+/* 덮어쓰기 확인이 걸린 칸 — 한 번 더 누르면 적용된다 (COOP §5). 경고색이지만 점선이라
+   위반(bad)이나 힌트와 눈으로 갈린다 — 셋이 같은 자리를 쓰므로 굵기가 아니라 성질로 나눈다 */
+.cell.armed{box-shadow:inset 0 0 0 2px var(--warn);background:var(--warn-soft)}
+.cell.r3{border-top:2px solid var(--rule-strong)}
+.cell.c3{border-left:2px solid var(--rule-strong)}
+.cell:hover:not(:disabled){border-color:transparent;color:var(--entered)}
+.cell .owner{position:absolute;left:3px;top:3px;width:5px;height:5px;border-radius:50%}
+.cell .cursor{position:absolute;right:2px;bottom:2px;font-size:9px;line-height:1}
+.keypad{display:grid;grid-template-columns:repeat(9,1fr);gap:6px;width:min(92vw,560px)}
+.keypad button{padding:12px 0;font-size:16px;font-family:var(--f-data);font-weight:500}
+.keypad button.wide{grid-column:span 9;font-family:var(--f-text);font-size:13.5px}
+
+/* ── 판 화면 — 보드가 주인, 오른쪽 레일 ────────────────────────────────── */
+.play{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:26px;align-items:start}
+@media (max-width:900px){.play{grid-template-columns:minmax(0,1fr)}}
+.clock{display:flex;align-items:baseline;gap:10px}
+.clock .t{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:38px;font-weight:600;
+  letter-spacing:-.02em;line-height:1}
+.clock.low .t{color:var(--danger)}
+.meter{height:3px;background:var(--sunk);margin-top:10px;position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0 auto 0 0;background:var(--accent);display:block;transition:width .5s linear}
+.clock.low + .meter i{background:var(--danger)}
+.stats{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px}
+.stat .v{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:17px;font-weight:600;line-height:1.2}
+.stat .k{font-size:11.5px;color:var(--ink3)}
+
+/* ── 진행률 ─────────────────────────────────────────────────────────────── */
+.progress-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--rule);font-size:13.5px}
+.progress-row:last-child{border-bottom:0}
+.progress-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.progress-row .bar{width:70px;height:4px;background:var(--sunk);position:relative;flex:none}
+.progress-row .bar i{position:absolute;inset:0 auto 0 0;background:var(--accent);display:block}
+.avatar{width:22px;height:22px;border-radius:3px;display:grid;place-items:center;flex:none;
+  font-family:var(--f-data);font-size:10px;font-weight:700;color:#fff}
+
+/* ── 로비 카드 ──────────────────────────────────────────────────────────── */
+.rooms{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.room{border:1px solid var(--rule);background:var(--surface);padding:16px;display:flex;flex-direction:column;gap:12px}
+.room .t{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.room .nm{font-weight:600;font-size:15px}
+.room .host{font-size:12px;color:var(--ink3)}
+.room .facts{display:flex;gap:14px;font-size:12.5px;color:var(--ink2)}
+.room .foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border-top:1px solid var(--rule);padding-top:11px}
+.room.busy{opacity:.62}
+.empty{border:1px dashed var(--rule-strong);padding:22px;text-align:center;color:var(--ink3);
+  font-size:13px;line-height:1.6}
+
+/* ── 룸 — 본문이 주 열, 채팅은 300px 레일(시안 ③). 룰 격자가 숨 쉴 폭이 여기서 나온다 ── */
+.roomgrid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px;align-items:start}
+@media (max-width:900px){.roomgrid{grid-template-columns:minmax(0,1fr)}}
+
+/* ── 룰 격자 ────────────────────────────────────────────────────────────── */
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media (max-width:720px){.rules{grid-template-columns:1fr}}
+.rule-cell{background:var(--surface);padding:13px 15px;display:flex;flex-direction:column;gap:7px}
+.rule-cell > .k{font-size:11.5px;color:var(--ink3)}
+.rule-cell .seg{max-width:none}
+.seg.tight button{font-size:11.5px;padding:6px 0}
+.rule-cell .lim{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.rule-cell .lim input{width:64px;padding:4px 8px;font-family:var(--f-data);font-variant-numeric:tabular-nums;
+  font-size:19px;font-weight:600;text-align:right}
+/* 토글 — 켜짐이 강조색, 꺼짐은 룰 색. 라벨은 상태를 말로 한 번 더 한다 */
+.switch{display:inline-flex;align-items:center;gap:9px;border:0;background:transparent;padding:0;
+  font-size:12.5px;color:var(--ink3);border-radius:999px}
+.switch:hover:not(:disabled){border:0}
+.switch i{width:34px;height:19px;border-radius:999px;background:var(--rule-strong);position:relative;display:block;
+  flex:none;transition:background .15s}
+.switch i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+  background:#fff;transition:left .15s}
+.switch[aria-checked="true"]{color:var(--ink)}
+.switch[aria-checked="true"] i{background:var(--accent)}
+.switch[aria-checked="true"] i::after{left:17px}
+
+/* ── 3열 헤어라인 격자 — 랭킹의 세 축 ───────────────────────────────────── */
+.hairgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media (max-width:760px){.hairgrid{grid-template-columns:1fr}}
+.hairgrid > section{background:var(--surface);padding:16px 18px;min-width:0}
+.hairgrid .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:8px}
+.hairgrid .hd h2{margin:0;font-size:14px}
+.hairgrid .hd select{padding:4px 8px;font-size:12px}
+.progress-row .rk{width:18px;flex:none}
+.progress-row.me{background:var(--accent-soft);margin:0 -18px;padding-left:18px;padding-right:18px}
+
+/* ── 취소 창 · 토스트 ───────────────────────────────────────────────────── */
+.banner{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:50;background:var(--surface);
+  border:1px solid var(--rule-strong);border-top:3px solid var(--warn);border-radius:0;
+  padding:20px 26px;text-align:center;min-width:340px;box-shadow:var(--shadow)}
+.banner .eyebrow{font-family:var(--f-data);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600}
+.banner .cnt{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:44px;font-weight:600;
+  color:var(--warn);line-height:1.1;margin-top:6px}
+.banner .cnt small{font-size:18px;font-weight:600}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;background:var(--ink);
+  color:var(--bg);padding:10px 16px;border-radius:3px;font-size:13px;max-width:80vw}
+
+/* ── 떠 있는 면 — 팝오버 ────────────────────────────────────────────────
+   붙어 있는 면(.card/.panel)은 헤어라인만으로 충분하지만, 떠 있는 면은 뒤의 내용과
+   겹친다. 그래서 시스템에서 떠 있는 다른 면(.banner)과 같은 어휘를 쓴다 —
+   굵은 룰과 그림자. 구조는 .panel > .hd/.bd 를 그대로 물려받고,
+   .pop 은 "이건 떠 있다"만 말한다. */
+.panel.pop{position:absolute;right:0;top:calc(100% + 8px);z-index:41;min-width:272px;
+  border-color:var(--rule-strong);box-shadow:var(--shadow)}
+.panel.pop .seg{max-width:none}      /* .rule-cell .seg 와 같은 이유 — 폭은 팝오버가 정한다 */
+.pop-scrim{position:fixed;inset:0;z-index:40}
+/* 메뉴를 연 트리거는 열려 있는 동안 눌린 채로 있다. 강조색은 쓰지 않는다 —
+   accent 는 "지금 내 것"의 색이지 열린 메뉴의 색이 아니다(머리말 규칙 ②).
+   :hover 규칙(0,3,1)이 이것(0,2,1)을 이기지만 배경은 건드리지 않아 눌린 상태는 남는다. */
+button.ghost[aria-expanded="true"]{background:var(--sunk);color:var(--ink)}
+
+/* ── 채팅 ───────────────────────────────────────────────────────────────── */
+.chat{height:200px;overflow-y:auto;border:1px solid var(--rule);border-radius:0;padding:10px;
+  background:var(--sunk);font-size:13px;display:flex;flex-direction:column;gap:6px}
+.chat .sys{color:var(--ink3)}
+.chat .lock{border:1px dashed var(--rule-strong);padding:12px;text-align:center;color:var(--ink3);
+  font-size:12.5px;line-height:1.5}
+
+/* ── 로그인 화면 — 브랜드가 처음 서는 자리 ─────────────────────────────── */
+.auth{min-height:100vh;display:grid;place-items:center;padding:32px 22px}
+.auth-panel{display:grid;grid-template-columns:1.05fr .95fr;width:100%;max-width:880px;
+  border:1px solid var(--rule);background:var(--surface)}
+.auth-hero{padding:46px 42px;display:flex;flex-direction:column;justify-content:center;gap:20px;
+  border-right:1px solid var(--rule);background:var(--bg)}
+.auth-hero .lede{font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.3}
+.auth-hero p{margin:0;color:var(--ink2);font-size:13.5px;max-width:34ch;line-height:1.65}
+.auth-facts{display:flex;gap:22px;margin-top:4px}
+.auth-facts .v{font-family:var(--f-data);font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;line-height:1.2}
+.auth-facts .k{font-size:11.5px;color:var(--ink3)}
+.auth-form{padding:40px 42px;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.auth-top{position:absolute;top:18px;right:22px}
+.seg{display:flex;border:1px solid var(--rule-strong);border-radius:3px;overflow:hidden;max-width:220px}
+.seg button{flex:1;border:0;border-radius:0;background:transparent;color:var(--ink2);padding:7px 0;font-size:13px}
+.seg button:hover:not(:disabled){border:0;color:var(--accent)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+/* 호버 규칙(특이도 0,3,1)이 선택 상태를 이겨 글자가 배경색과 같아지던 것을 막는다 */
+.seg button[aria-pressed="true"]:hover:not(:disabled){color:var(--accent-ink)}
+.field{display:flex;flex-direction:column;gap:5px}
+.field > span{font-size:12.5px;color:var(--ink2);font-weight:500}
+@media (max-width:760px){
+  .auth-panel{grid-template-columns:1fr;max-width:440px}
+  .auth-hero{border-right:0;border-bottom:1px solid var(--rule);padding:32px 28px;gap:14px}
+  .auth-hero .lede{font-size:23px}
+  .auth-form{padding:28px}
+}
+
+
+/* ── 시안 전용 — 실제 앱에는 없는 껍데기다 ─────────────────────────────── */
+.spec-bar{position:sticky;top:0;z-index:99;background:var(--sunk);border-bottom:1px solid var(--rule-strong);
+  padding:10px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px}
+.spec-bar b{font-family:var(--f-data)}
+.spec-sec{max-width:1240px;margin:0 auto;padding:30px 20px 10px}
+.spec-sec h2{font-family:var(--f-data);font-size:13px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink3);border-bottom:1px solid var(--rule);padding-bottom:7px;margin:0 0 4px}
+.spec-sec > p{color:var(--ink2);font-size:13px;margin:8px 0 0}
+.frame{max-width:1240px;margin:14px auto 34px;padding:0 20px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.sw{background:var(--surface);padding:11px 13px;font-size:12px}
+.sw i{display:block;height:30px;border:1px solid var(--rule);margin-bottom:7px}
+.sw code{font-family:var(--f-data);font-size:11px;color:var(--ink3);display:block}
+</style></head><body>
+
+<div class="spec-bar">
+  <b>SUD-DSN-UI</b> <span class="muted">UI 디자인 시스템 시안 — 화면은 정적이고, 값은 문서 §1~§5 를 따른다</span>
+  <span style="flex:1"></span>
+  <div class="seg" style="max-width:none;width:230px;flex:none">
+    <button type="button" data-theme-btn="system" aria-pressed="true">시스템</button>
+    <button type="button" data-theme-btn="light" aria-pressed="false">라이트</button>
+    <button type="button" data-theme-btn="dark" aria-pressed="false">다크</button>
+  </div>
+</div>
+
+<div class="spec-sec"><h2>1 · 토큰</h2><p>색은 <code>:root</code> · 다크 미디어 쿼리 · <code>[data-theme=dark]</code> 세 자리에서만 정의한다(§2).</p></div>
+<div class="frame"><div class="swatches" id="sw"></div></div>
+
+<div class="spec-sec"><h2>2 · 컨트롤</h2><p>주 동작은 화면당 하나다. 셸의 항목은 전부 ghost (§4.1).</p></div>
+<div class="frame"><div class="card row" style="gap:10px">
+  <button>기본</button><button class="primary">주 동작</button><button class="ghost">조용한</button>
+  <button class="danger">되돌릴 수 없음</button><button class="sm">작게</button><button class="big">크게</button>
+  <button disabled>비활성</button>
+  <div class="seg" style="max-width:200px"><button aria-pressed="true">레이스</button><button>협동</button></div>
+  <button class="switch" role="switch" aria-checked="true"><i></i>표시</button>
+  <span class="badge">중립</span><span class="badge rank"><i class="dot"></i>랭크</span>
+  <span class="badge ok">준비완료</span><span class="badge warn">연결 끊김</span><span class="badge no">이탈</span>
+</div></div>
+
+<div class="spec-sec"><h2>3 · 셸</h2><p>56px 고정. 오른쪽 항목은 전부 조용한 버튼이다 — 상자를 두르면 화면의 주 동작처럼 읽힌다(§3).</p></div>
+<div class="frame"><header class="topbar" style="position:static">
+  <div class="inner">
+    <div class="brand"><span class="mk"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>SUDOKU</div>
+    <div class="row" style="gap:6px">
+      <button class="ghost sm">랭킹</button><span class="sep"></span>
+      <span class="badge">시험이</span>
+      <button class="ghost sm" aria-expanded="true">설정</button>
+      <button class="ghost sm">로그아웃</button>
+    </div>
+  </div>
+</header></div>
+
+<div class="spec-sec"><h2>4 · 로그인</h2><p>폼이 세 칸뿐이라 비는 자리에 맥락을 둔다(AUTH §6.1).</p></div>
+<div class="frame"><div class="auth-panel">
+  <div class="auth-hero">
+    <div class="brand"><span class="mk"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>SUDOKU</div>
+    <div class="lede">여럿이 같은 퍼즐을<br>같은 시각에</div>
+    <p>겨루거나(레이스) 함께 풉니다(협동). 한 판의 승부는 룸 안에서 끝나고, 쌓인 전적이 랭킹이 됩니다.</p>
+    <div class="auth-facts">
+      <div><div class="v">5</div><div class="k">난이도</div></div>
+      <div><div class="v">2</div><div class="k">모드</div></div>
+      <div><div class="v">3</div><div class="k">랭킹 축</div></div>
+    </div>
+  </div>
+  <div class="auth-form">
+    <div class="seg"><button aria-pressed="true">로그인</button><button>가입</button></div>
+    <label class="field"><span>이메일</span><input placeholder="로그인 ID 로만 쓰입니다"></label>
+    <label class="field"><span>비밀번호</span><input type="password" placeholder="8자 이상"></label>
+    <button class="primary big" style="justify-content:center">로그인</button>
+    <p class="muted" style="margin:0;line-height:1.55">비밀번호 찾기는 아직 지원하지 않습니다. 이메일은 로그인 ID 로만 쓰이며, 어떤 메일도 보내지 않습니다.</p>
+  </div>
+</div></div>
+
+<div class="spec-sec"><h2>5 · 로비</h2><p>정원이 찬 방은 흐려지고 참가가 막힌다(ROOM §7.1).</p></div>
+<div class="frame">
+  <div class="pagehead">
+    <div><h1>공개 룸</h1><p class="muted">지금 열려 있는 방 <span class="num">3</span>개</p></div>
+    <div class="row" style="gap:8px">
+      <input placeholder="코드 6자리" style="width:132px"><button>참가</button>
+      <span class="sep"></span>
+      <button class="switch" role="switch" aria-checked="true"><i></i>공개</button>
+      <button class="primary">룸 만들기</button>
+    </div>
+  </div>
+  <div class="rooms">
+    <div class="room"><div class="t"><div><div class="nm">두리의 방</div><div class="host">호스트 두리</div></div><span class="badge rank"><i class="dot"></i>랭크</span></div>
+      <div class="facts"><span>레이스</span><span>보통</span><span>15분</span></div>
+      <div class="foot"><span><b class="num">2</b> <span style="color:var(--ink3)">/ 4</span></span><button class="primary sm">참가</button></div></div>
+    <div class="room"><div class="t"><div><div class="nm">세아의 방</div><div class="host">호스트 세아</div></div><span class="badge">캐주얼</span></div>
+      <div class="facts"><span>협동</span><span>어려움</span><span>25분</span></div>
+      <div class="foot"><span><b class="num">3</b> <span style="color:var(--ink3)">/ 4</span></span><button class="primary sm">참가</button></div></div>
+    <div class="room busy"><div class="t"><div><div class="nm">네오의 방</div><div class="host">호스트 네오</div></div><span class="badge rank"><i class="dot"></i>랭크</span></div>
+      <div class="facts"><span>레이스</span><span>악몽</span><span>40분</span></div>
+      <div class="foot"><span><b class="num">4</b> <span style="color:var(--ink3)">/ 4</span></span><button class="sm" disabled>정원</button></div></div>
+  </div>
+</div>
+
+<div class="spec-sec"><h2>6 · 룸(대기)</h2><p>본문 1열 + 채팅 300px 레일. 판 화면과 같은 폭이라 시작해도 채팅이 제자리에 있다(§3).</p></div>
+<div class="frame"><div class="roomgrid">
+  <div class="col">
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2 style="margin:0">시험이의 방</h2><span class="badge">코드 QHKS8R</span></div>
+      <div style="margin-top:10px"><span class="badge">이 판은 랭킹에 반영되지 않습니다</span>
+        <ul class="muted" style="margin:8px 0 0 18px"><li>힌트 허용</li><li>제한 시간 20분 (전문가 표준 30분)</li></ul></div>
+    </div>
+    <div class="card col"><h2>룰</h2>
+      <div class="rules">
+        <div class="rule-cell"><span class="k">모드</span><div class="seg"><button aria-pressed="true">레이스</button><button>협동</button></div></div>
+        <div class="rule-cell"><span class="k">난이도</span><div class="seg tight"><button>입문</button><button aria-pressed="true">보통</button><button>어려움</button><button>전문가</button><button>악몽</button></div></div>
+        <div class="rule-cell"><span class="k">정원</span><div class="seg"><button>1</button><button>2</button><button>3</button><button aria-pressed="true">4</button><button>5</button><button>6</button><button>7</button><button>8</button></div></div>
+        <div class="rule-cell"><span class="k">제한 시간</span><div class="lim"><input type="number" value="5" aria-label="제한 시간(분)"><span class="k">분</span><button class="ghost sm">표준값으로</button></div>
+          <p class="muted" style="margin:2px 0 0;color:var(--warn);line-height:1.45">⚠ 보통 난이도의 완주 중앙값은 6~10분입니다. 대부분 미완주로 끝날 수 있습니다.</p></div>
+        <div class="rule-cell"><span class="k">제약 위반 표시</span><button class="switch" role="switch" aria-checked="true"><i></i>표시</button></div>
+        <div class="rule-cell"><span class="k">힌트 허용</span><button class="switch" role="switch" aria-checked="false"><i></i>비허용</button></div>
+      </div>
+      <button>랭크 판으로 맞추기</button>
+    </div>
+    <div class="card"><h2>참가자 2/4</h2>
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <span class="muted" style="color:var(--warn)">두리님이 아직 준비하지 않았습니다</span><button class="sm">재촉하기</button></div>
+      <div class="progress-row"><span>시험이 <span class="badge">호스트</span></span><span>—</span></div>
+      <div class="progress-row" style="background:var(--warn-soft);margin:0 -18px;padding:9px 18px">
+        <span>두리</span><span><span class="badge">미준비</span>
+        <button class="ghost sm" style="margin-left:8px">호스트 넘기기</button><button class="danger sm" style="margin-left:4px">내보내기</button></span></div>
+      <div class="row" style="margin-top:12px"><button class="primary">시작</button><button class="ghost">나가기</button></div>
+    </div>
+  </div>
+  <div class="panel"><div class="hd"><h2>채팅</h2></div><div class="bd">
+    <div class="chat"><div class="sys">판이 시작되었습니다 — 캐주얼 판입니다</div><div><strong>두리</strong> 시작할까요?</div></div>
+    <div class="row" style="margin-top:8px"><input placeholder="메시지" style="flex:1"><button>보내기</button></div>
+  </div></div>
+</div></div>
+
+<div class="spec-sec"><h2>7 · 판(진행)</h2><p>보드가 주인이고 나머지는 레일이다. 이력 팝오버는 보드 아래에 선다 — 위에 띄우면 그 칸이 가려진다(PLAY §3.4).</p></div>
+<div class="frame"><div class="play">
+  <div class="col">
+    <div class="board" id="board" role="grid" aria-label="스도쿠 보드"></div>
+    <div class="keypad" id="keypad"></div>
+    <div class="panel"><div class="hd"><h3>R1C4 이력</h3><button class="ghost sm">닫기</button></div>
+      <div class="bd" style="padding:6px 16px 12px">
+        <div class="progress-row"><span class="avatar" style="background:#2a3bb5">시</span><span class="nm">시험이</span><span class="num" style="width:18px;text-align:center">2</span><span class="muted num">10:14:12</span><span class="badge">현재</span></div>
+        <div class="progress-row"><span class="avatar" style="background:#12795c">두</span><span class="nm">두리</span><span class="num" style="width:18px;text-align:center">5</span><span class="muted num">10:13:29</span><button class="ghost sm">되돌리기</button></div>
+      </div></div>
+  </div>
+  <div class="col">
+    <div class="panel"><div class="bd">
+      <div class="clock"><span class="t">14:03</span><span class="muted">보통 · 레이스</span></div>
+      <div class="meter"><i style="width:62%"></i></div>
+      <div class="stats"><div class="stat"><div class="v">38</div><div class="k">남은 칸</div></div>
+        <button class="primary">제출</button></div>
+      <div class="stats"><button class="ghost sm">나가기</button><span class="badge rank"><i class="dot"></i>랭킹 반영</span></div>
+    </div></div>
+    <div class="panel"><div class="hd"><h2>진행률</h2><span class="muted">0.5초마다</span></div>
+      <div class="bd" style="padding:4px 16px 12px">
+        <div class="progress-row"><span class="avatar" style="background:#2a3bb5">시</span><span class="nm">시험이 <span class="muted">(나)</span></span>
+          <span class="bar"><i style="width:64%"></i></span><span class="num" style="font-size:12.5px">43칸</span></div>
+        <div class="progress-row"><span class="avatar" style="background:#12795c">두</span><span class="nm">두리</span>
+          <span class="bar"><i style="width:38%"></i></span><span class="num" style="font-size:12.5px">26칸</span>
+          <button class="danger sm" style="padding:2px 7px;font-size:11.5px">내보내기</button></div>
+      </div></div>
+    <div class="panel"><div class="hd"><h2>채팅</h2></div><div class="bd">
+      <div class="chat lock" style="display:block">랭크 레이스 판은 진행 중 닫힙니다 — 결과 화면에서 다시 열립니다</div>
+    </div></div>
+  </div>
+</div></div>
+
+<div class="spec-sec"><h2>8 · 떠 있는 면 · 알림</h2><p>취소 창과 팝오버가 같은 옷을 입는다 — 굵은 룰 + 그림자(§4.4).</p></div>
+<div class="frame"><div class="row" style="gap:20px;align-items:flex-start">
+  <div class="panel pop" style="position:static;min-width:272px">
+    <div class="hd"><h3>개인 설정</h3></div>
+    <div class="bd col" style="gap:8px"><p class="muted" style="margin:0">테마</p>
+      <div class="seg" style="max-width:none"><button aria-pressed="true">시스템</button><button>라이트</button><button>다크</button></div>
+      <p class="muted" style="margin:0;line-height:1.5">시스템은 기기 설정을 따릅니다. 이 브라우저에만 저장되며 서버로 가지 않습니다.</p></div>
+  </div>
+  <div class="banner" style="position:static;transform:none;min-width:340px">
+    <div class="eyebrow">팀 제출</div><div class="cnt">5<small>초</small></div>
+    <p class="muted" style="margin:6px 0 0">이 동안은 누구도 칸을 고칠 수 없습니다</p>
+    <button class="danger" style="margin-top:10px">취소</button>
+  </div>
+  <div class="toast" style="position:static;transform:none">두리님이 채운 칸입니다 — 한 번 더 누르면 덮어씁니다</div>
+</div></div>
+
+<div class="spec-sec"><h2>9 · 랭킹</h2><p>세 축을 탭으로 감추지 않는다 — 축이 셋이라는 사실 자체가 이 영역의 핵심이다(RANK).</p></div>
+<div class="frame"><div class="hairgrid">
+  <section><div class="hd"><h2>레이팅</h2><span class="muted">통합</span></div>
+    <div class="progress-row"><span class="rk first">1</span><span class="nm">두리</span><span class="num">1284</span></div>
+    <div class="progress-row me"><span class="rk">2</span><span class="nm">시험이</span><span class="num">1209</span></div>
+    <div class="progress-row"><span class="rk">3</span><span class="nm">세아</span><span class="num">1176</span></div></section>
+  <section><div class="hd"><h2>시즌 포인트</h2><span class="muted">시즌 3</span></div>
+    <div class="progress-row"><span class="rk first">1</span><span class="nm">네오</span><span class="num">940</span></div>
+    <div class="progress-row"><span class="rk">2</span><span class="nm">두리</span><span class="num">880</span></div></section>
+  <section><div class="hd"><h2>기록</h2><select><option>race:normal</option></select></div>
+    <div class="progress-row"><span class="rk first">1</span><span class="nm">두리</span><span class="num">03:58</span></div>
+    <div class="empty" style="margin-top:14px">배치 <b class="num">5</b>판을 마친 사람이<br>아직 없습니다</div></section>
+</div></div>
+
+<script>
+// 테마 — 문서 §2 의 세 상태를 그대로 흉내낸다
+document.querySelectorAll('[data-theme-btn]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var v = b.getAttribute('data-theme-btn');
+    if (v === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', v);
+    document.querySelectorAll('[data-theme-btn]').forEach(function (x) {
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+  });
+});
+
+// 토큰 견본 — CSS 변수에서 직접 읽는다. 값을 여기 다시 적지 않는다.
+var NAMES = ['--bg','--surface','--sunk','--ink','--ink2','--ink3','--rule','--rule-strong',
+  '--accent','--accent-soft','--good','--good-soft','--warn','--warn-soft','--danger','--danger-soft',
+  '--given','--entered','--violation','--hint'];
+function paint() {
+  var cs = getComputedStyle(document.documentElement);
+  document.getElementById('sw').innerHTML = NAMES.map(function (n) {
+    var v = cs.getPropertyValue(n).trim();
+    return '<div class="sw"><i style="background:' + v + '"></i>' + n + '<code>' + v + '</code></div>';
+  }).join('');
+}
+paint();
+new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paint);
+
+// 보드 — 단서는 잉크와 굵기로만 구분한다(§5)
+var GIVENS = [5,3,0,0,7,0,0,0,0, 6,0,0,1,9,5,0,0,0, 0,9,8,0,0,0,0,6,0,
+              8,0,0,0,6,0,0,0,3, 4,0,0,8,0,3,0,0,1, 7,0,0,0,2,0,0,0,6,
+              0,6,0,0,0,0,2,8,0, 0,0,0,4,1,9,0,0,5, 0,0,0,0,8,0,0,7,9];
+var MINE = { 2:4, 3:6, 20:1, 24:2 };            // 내가 넣은 값
+var board = document.getElementById('board');
+for (var i = 0; i < 81; i++) {
+  var g = GIVENS[i], v = g || MINE[i] || '';
+  var cls = ['cell'];
+  if (g) cls.push('given');
+  if (i === 3) cls.push('sel');                  // 선택
+  if (i === 24) cls.push('bad');                 // 제약 위반
+  if (i === 40) cls.push('hint');                // 힌트
+  if (i === 20) cls.push('armed');               // 덮어쓰기 확인 대기
+  if (i >= 9 && Math.floor(i / 9) % 3 === 0) cls.push('r3');
+  if (i % 9 !== 0 && (i % 9) % 3 === 0) cls.push('c3');
+  var owner = (i === 20 || i === 24) ? '<span class="owner" style="background:#12795c"></span>' : '';
+  board.insertAdjacentHTML('beforeend',
+    '<button class="' + cls.join(' ') + '">' + v + owner + '</button>');
+}
+var kp = document.getElementById('keypad');
+for (var n = 1; n <= 9; n++) kp.insertAdjacentHTML('beforeend', '<button>' + n + '</button>');
+kp.insertAdjacentHTML('beforeend', '<button class="wide">지움</button>');
+</script>
+</body></html>
