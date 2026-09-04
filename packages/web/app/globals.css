@@ -151,6 +151,9 @@ tr.me td{background:var(--accent-soft)}
 .cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
 .cell.bad{color:var(--violation);background:var(--danger-soft)}
 .cell.hint{box-shadow:inset 0 0 0 2px var(--hint);background:var(--hint-soft)}
+/* 덮어쓰기 확인이 걸린 칸 — 한 번 더 누르면 적용된다 (COOP §5). 경고색이지만 점선이라
+   위반(bad)이나 힌트와 눈으로 갈린다 — 셋이 같은 자리를 쓰므로 굵기가 아니라 성질로 나눈다 */
+.cell.armed{box-shadow:inset 0 0 0 2px var(--warn);background:var(--warn-soft)}
 .cell.r3{border-top:2px solid var(--rule-strong)}
 .cell.c3{border-left:2px solid var(--rule-strong)}
 .cell:hover:not(:disabled){border-color:transparent;color:var(--entered)}

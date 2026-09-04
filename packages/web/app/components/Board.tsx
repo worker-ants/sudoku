@@ -8,6 +8,8 @@ export interface BoardProps {
   owners?: Record<number, string>;                 // 협동 — 칸별 마지막 입력자
   colorOf?: (accountId: string) => number;
   cursors?: { accountId: string; index: number | null; nickname: string }[];
+  /** 덮어쓰기 확인이 걸린 칸 — 한 번 더 누르면 적용된다 (COOP §5) */
+  armed?: number | null;
   readOnly?: boolean;
   onSelect: (i: number) => void;
 }
@@ -27,6 +29,7 @@ export function Board(p: BoardProps) {
           p.selected === i ? 'sel' : p.peers.has(i) ? 'peer' : '',
           bad ? 'bad' : '',
           p.hintIndex === i ? 'hint' : '',
+          p.armed === i ? 'armed' : '',
           i >= 9 && Math.floor(i / 9) % 3 === 0 ? 'r3' : '',
           i % 9 !== 0 && (i % 9) % 3 === 0 ? 'c3' : '',
         ].filter(Boolean).join(' ');

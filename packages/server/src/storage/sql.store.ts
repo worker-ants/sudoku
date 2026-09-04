@@ -95,6 +95,13 @@ export class SqlResultStore implements ResultStore {
     const r = this.rows<Record<string, unknown>>(await this.db.query('SELECT * FROM account WHERE nickname_lower=$1', [nickname.toLowerCase().replace(/\s+/g, '')]));
     return r[0] ? this.mapAccount(r[0]) : null;
   }
+  /** 닉네임과 "바꾼 시즌" 은 한 문장으로 굳는다 — 따로 쓰면 시즌 제한이 새는 창이 생긴다 */
+  async updateNickname(accountId: string, nickname: string, season: number): Promise<void> {
+    await this.db.query(
+      'UPDATE account SET nickname=$2, nickname_lower=$3, nickname_changed_season=$4 WHERE account_id=$1',
+      [accountId, nickname, nickname.toLowerCase().replace(/\s+/g, ''), season],
+    );
+  }
   async findAccountById(accountId: string): Promise<AccountRow | null> {
     const r = this.rows<Record<string, unknown>>(await this.db.query('SELECT * FROM account WHERE account_id=$1', [accountId]));
     return r[0] ? this.mapAccount(r[0]) : null;

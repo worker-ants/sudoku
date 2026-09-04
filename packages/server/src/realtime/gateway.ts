@@ -167,15 +167,60 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /**
+   * 재촉 알림의 마지막 시각 (READY §5.1 — 30초에 한 번).
+   *
+   * 룸 상태에 넣지 않는다. 남용 방지용 창이라 서버가 재시작되면 풀려도 그만이고,
+   * 룸 스냅샷에 넣으면 직렬화와 복구 경로가 이 값 때문에 늘어난다.
+   */
+  private readonly lastNudgeMs = new Map<string, number>();
+  private static readonly NUDGE_INTERVAL_MS = 30_000;
+
   private async dispatch(socket: Socket, d: SocketData, msg: ClientMessage): Promise<void> {
     const match = d.roomId ? this.matches.matchOfRoom(d.roomId) : null;
     switch (msg.t) {
       case 'cell:set': if (match) await this.matches.handleCell(match, d.accountId, msg.index, msg.value); return;
       case 'cursor:set': if (match) await this.matches.handleCursor(match, d.accountId, msg.index); return;
+      case 'cell:history': {
+        // 협동만이다 — 레이스는 보드가 각자의 것이라 "남이 채운 칸" 이 없다(COOP §7)
+        if (!match || match.mode !== 'coop' || !match.team) return;
+        const entries = (match.team.changeLog.get(msg.index) ?? [])
+          .map((e) => ({ value: e.value, accountId: e.by, atEpochMs: e.atMs }));
+        this.emit(socket, { t: 'cell:history', index: msg.index, entries });
+        return;
+      }
       case 'submit:request': if (match) await this.matches.handleSubmit(match, d.accountId); return;
       case 'submit:cancel': if (match) await this.matches.handleCancel(match, d.accountId); return;
       case 'hint:request': if (match) await this.matches.handleHint(match, d.accountId); return;
       case 'ready:toggle': { const r = await this.rooms.toggleReady(d.accountId); this.pushRoom(r); return; }
+      case 'ready:nudge': {
+        const room = await this.rooms.membershipOf(d.accountId);
+        if (!room) return;
+        if (room.hostAccountId !== d.accountId) {
+          this.emit(socket, { t: 'notice', level: 'warn', code: 'not-host', text: '호스트만 재촉할 수 있습니다' });
+          return;
+        }
+        const now = Date.now();
+        const last = this.lastNudgeMs.get(room.roomId) ?? 0;
+        const leftSec = Math.ceil((RealtimeGateway.NUDGE_INTERVAL_MS - (now - last)) / 1000);
+        if (leftSec > 0) {
+          this.emit(socket, { t: 'notice', level: 'warn', code: 'nudge-cooldown', text: `${leftSec}초 뒤에 다시 재촉할 수 있습니다` });
+          return;
+        }
+        const targets = room.members.filter((m) => m.accountId !== room.hostAccountId && !m.ready);
+        if (!targets.length) {
+          this.emit(socket, { t: 'notice', level: 'info', code: 'nudge-none', text: '재촉할 사람이 없습니다' });
+          return;
+        }
+        this.lastNudgeMs.set(room.roomId, now);
+        const host = room.members.find((m) => m.accountId === room.hostAccountId);
+        for (const m of targets) {
+          const s = this.sockets.get(m.accountId);
+          if (s) this.emit(s, { t: 'notice', level: 'info', code: 'ready-nudge', text: `${host?.nickname ?? '호스트'}님이 준비를 기다리고 있습니다` });
+        }
+        this.emit(socket, { t: 'notice', level: 'info', code: 'nudge-sent', text: `${targets.length}명에게 알렸습니다` });
+        return;
+      }
       case 'rules:update': {
         const before = (await this.rooms.membershipOf(d.accountId))!;
         const wasEligible = this.rooms.eligibility(before).eligible;
@@ -202,6 +247,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       case 'host:delegate': { const room = await this.rooms.delegate(d.accountId, msg.accountId); this.pushRoom(room); return; }
       case 'room:close': {
         const roomId = await this.rooms.closeByHost(d.accountId);
+        this.lastNudgeMs.delete(roomId);
         this.toRoom(roomId, { t: 'room:closed', reason: '호스트가 룸을 닫았습니다' });
         for (const s of this.server.sockets.sockets.values()) if ((s.data as SocketData)?.roomId === roomId) (s.data as SocketData).roomId = null;
         return;
@@ -299,6 +345,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const matchId = `mt_${randomUUID().slice(0, 8)}`;
       room.phase = 'playing';
       room.currentMatchId = matchId;
+      this.lastNudgeMs.delete(room.roomId);   // 재촉은 대기 구간의 장치다
       room.lastActivityAtMs = Date.now();
       await this.rooms.save(room);
       return { blocked: false as const, room, rules, assignment, rankEligible, matchId };

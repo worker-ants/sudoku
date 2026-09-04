@@ -105,6 +105,6 @@ export class AuthService {
     const season = seasonIndex(Date.now(), { epochMs: CONFIG.seasonEpochMs });
     if (acc.nicknameChangedSeason === season) throw new AuthError('nickname-cooldown', '닉네임은 시즌당 한 번만 바꿀 수 있습니다');
     if (await this.db.findAccountByNickname(nickname)) throw new AuthError('nickname-taken', '이미 쓰이고 있는 닉네임입니다');
-    throw new AuthError('not-implemented', '닉네임 변경은 v1 범위 밖입니다');
+    await this.db.updateNickname(accountId, nickname, season);
   }
 }

@@ -48,6 +48,11 @@ export interface RoomView {
   rules: Rules;
   members: MemberView[];
   eligibility: RankEligibility;
+  /**
+   * 짧은 제한 시간 안내 (RULES §4.3 · G2) — 막지 않고 알리기만 한다.
+   * 난이도별 완주 중앙값 표는 **서버에만 둔다.** 클라이언트가 같은 표를 들면 언젠가 갈라진다.
+   */
+  limitNotice: string | null;
   lastResultMatchId: string | null;
 }
 
@@ -187,14 +192,28 @@ export interface ChatMessage {
 }
 
 // ── 클라이언트 → 서버 ──────────────────────────────────────────────────────
+/**
+ * 칸 이력 한 줄 (COOP §7.1·§7.2).
+ *
+ * **정답 여부는 담지 않는다** — 플레이 중에는 존재하지 않는 값이다(VISION 원칙 8).
+ * `value` 는 사람이 넣은 값이고 `accountId` 는 넣은 사람이다.
+ */
+export interface CellHistoryEntry {
+  value: number;
+  accountId: string;
+  atEpochMs: number;
+}
+
 export type ClientMessage =
   | { t: 'cell:set'; index: number; value: number }        // value 0 = 지우기
   | { t: 'cursor:set'; index: number | null }
+  | { t: 'cell:history'; index: number }                   // 협동 — 칸 이력 팝오버 (COOP §7.2)
   | { t: 'submit:request' }
   | { t: 'submit:cancel' }
   | { t: 'hint:request' }
   | { t: 'chat:send'; text: string }
   | { t: 'ready:toggle' }
+  | { t: 'ready:nudge' }                                   // 호스트 → 미준비자 재촉 (READY §5.1)
   | { t: 'rules:update'; patch: Partial<Rules>; followStandardLimit?: boolean }
   | { t: 'rules:preset' }
   | { t: 'match:start' }
@@ -217,6 +236,7 @@ export type ServerMessage =
   | { t: 'submit:result'; result: SubmitResult }
   | { t: 'submit:window'; window: SubmitWindow }
   | { t: 'hint:result'; hint: HintResult }
+  | { t: 'cell:history'; index: number; entries: CellHistoryEntry[] }
   | { t: 'match:ended'; result: MatchEnded }
   | { t: 'chat'; message: ChatMessage }
   | { t: 'lobby:delta'; upsert: LobbyRoomView[]; remove: string[]; full: boolean }

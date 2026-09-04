@@ -48,6 +48,8 @@ export interface ResultStore {
   createAccount(row: AccountRow): Promise<void>;
   findAccountByEmail(email: string): Promise<AccountRow | null>;
   findAccountByNickname(nickname: string): Promise<AccountRow | null>;
+  /** 닉네임 변경 — 바꾼 시즌을 함께 굳힌다(AUTH K2, 시즌당 1회) */
+  updateNickname(accountId: string, nickname: string, season: number): Promise<void>;
   findAccountById(accountId: string): Promise<AccountRow | null>;
 
   /** 판 종료 이관은 멱등하다 — 같은 matchId 를 두 번 넣어도 랭킹이 두 번 오르지 않는다 */

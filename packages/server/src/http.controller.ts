@@ -64,6 +64,16 @@ export class HttpController {
   @Get('auth/me')
   async whoami(@Req() req: Request) { return this.me(req); }
 
+  /** 닉네임 변경 — 시즌당 1회 (AUTH K2) */
+  @Post('auth/nickname')
+  async changeNickname(@Req() req: Request, @Body() b: { nickname: string }) {
+    const acc = await this.me(req);
+    try {
+      await this.auth.changeNickname(acc.accountId, b.nickname);
+      return { accountId: acc.accountId, email: acc.email, nickname: b.nickname };
+    } catch (e) { return fail(e); }
+  }
+
   @Post('rooms')
   async createRoom(@Req() req: Request, @Body() b: { name?: string; isPublic?: boolean }) {
     const acc = await this.me(req);

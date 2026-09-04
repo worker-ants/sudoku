@@ -1,7 +1,7 @@
 'use client';
 import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  ChatMessage, Difficulty, LobbyRoomView, MatchEnded, MatchStarted, Progress, RoomView, Rules, ServerMessage, SubmitResult, SubmitWindow,
+  CellHistoryEntry, ChatMessage, Difficulty, LobbyRoomView, MatchEnded, MatchStarted, Progress, RoomView, Rules, ServerMessage, SubmitResult, SubmitWindow,
 } from '@sudoku/contracts';
 import { api, connect, disconnect, send } from '../lib/net';
 import { DIFF_LABEL, fmtSec, isFull, peersOf, violations } from '../lib/sudoku';
@@ -83,6 +83,7 @@ export default function App() {
         return;
       case 'hint:result': setHint(m.hint); setSelected(m.hint.index);
         say(`${Math.floor(m.hint.index / 9) + 1}행 ${(m.hint.index % 9) + 1}열 — ${m.hint.technique}`); return;
+      case 'cell:history': setHistory({ index: m.index, entries: m.entries }); return;
       case 'match:ended': setEnded(m.result); setMatch(null); setWindow_(null); return;
       case 'chat': setChat((c) => [...c.slice(-99), m.message]); return;
       case 'lobby:delta': setLobby(m.upsert); return;
@@ -121,15 +122,48 @@ export default function App() {
 
   const colorOf = useCallback((accountId: string) => match?.participants.find((p) => p.accountId === accountId)?.colorIndex ?? 0, [match]);
 
+  /**
+   * 덮어쓰기 확인 (COOP §5 · O6) — 남이 채운 칸의 첫 입력은 보류하고 경고만 띄운다.
+   * 3초 안에 **같은 값**을 다시 넣으면 적용한다. 대화상자를 쓰지 않는 이유는 협동의
+   * 리듬이다 — 덮어쓰기는 사고가 아니라 정상 동작이라 매번 모달이 뜨면 흐름이 끊긴다.
+   */
+  const [pendingWrite, setPendingWrite] = useState<{ index: number; value: number; atMs: number } | null>(null);
+  /** 칸 이력 팝오버 (COOP §7.2) — 열려 있는 칸과 그 이력. 클릭할 때마다 서버에 새로 묻는다 */
+  const [history, setHistory] = useState<{ index: number; entries: CellHistoryEntry[] } | null>(null);
+  useEffect(() => {
+    if (!pendingWrite) return;
+    const timer = setTimeout(() => setPendingWrite(null), 3000);
+    return () => clearTimeout(timer);
+  }, [pendingWrite]);
+
   const setCell = (i: number, v: number) => {
     if (!match || locked || match.givens[i]) return;
+
+    // 자기 칸과 빈칸은 확인 없이 바로 간다. 값을 지우는 것도 덮어쓰기로 친다(§5).
+    const owner = match.mode === 'coop' ? owners[i] : undefined;
+    if (owner && owner !== me!.accountId) {
+      const armed = pendingWrite && pendingWrite.index === i && pendingWrite.value === v;
+      if (!armed) {
+        setPendingWrite({ index: i, value: v, atMs: Date.now() });
+        const who = match.participants.find((x) => x.accountId === owner)?.nickname ?? '다른 참가자';
+        say(`${who}님이 채운 칸입니다 — 한 번 더 누르면 덮어씁니다`);
+        return;                                   // 값이 들어가지 않는다
+      }
+      setPendingWrite(null);
+    }
+
     setCells((prev) => { const n = [...prev]; n[i] = v; return n; });
     if (match.mode === 'coop') setOwners((o) => ({ ...o, [i]: me!.accountId }));
     send({ t: 'cell:set', index: i, value: v });
   };
   const selectCell = (i: number) => {
     setSelected(i);
-    if (match?.mode === 'coop') send({ t: 'cursor:set', index: i });
+    setHistory(null);
+    if (match?.mode === 'coop') {
+      send({ t: 'cursor:set', index: i });
+      // 이력은 보드가 아니라 이 칸의 것이다 — 고를 때마다 새로 묻는다(캐시하면 남의 입력에 뒤처진다)
+      if (!match.givens[i]) send({ t: 'cell:history', index: i });
+    }
   };
 
   useEffect(() => {
@@ -159,7 +193,7 @@ export default function App() {
             {!room && <button className="ghost sm" onClick={() => setView(view === 'lobby' ? 'rankings' : 'lobby')}>{view === 'lobby' ? '랭킹' : '로비'}</button>}
             <span className="sep" />
             <span className="badge">{me.nickname}</span>
-            <Settings />
+            <Settings me={me} onNickname={(nickname) => setMe({ ...me, nickname })} />
             <button className="ghost sm" onClick={async () => { await api('/api/auth/logout', 'POST'); disconnect(); setMe(null); setRoom(null); }}>로그아웃</button>
           </div>
         </div>
@@ -182,6 +216,7 @@ export default function App() {
               givens={match.givens} cells={cells} selected={selected} violations={bad}
               showViolations={match.violationDisplay === 'show'}
               hintIndex={hint?.index ?? null} peers={peers}
+              armed={pendingWrite?.index ?? null}
               owners={match.mode === 'coop' ? owners : undefined}
               colorOf={match.mode === 'coop' ? colorOf : undefined}
               cursors={match.mode === 'coop' && progress?.kind === 'coop'
@@ -193,6 +228,10 @@ export default function App() {
               onSelect={selectCell}
             />
             <Keypad disabled={locked || selected === null} onKey={(v) => selected !== null && setCell(selected, v)} />
+            {match.mode === 'coop' && history && history.index === selected && (
+              <CellHistory h={history} match={match} colorOf={colorOf}
+                onRevert={(v) => setCell(history.index, v)} onClose={() => setHistory(null)} />
+            )}
             {isFull(cells) && bad.size > 0 && (
               <p className="muted" style={{ color: 'var(--danger)' }}>
                 제출할 수 없습니다 — 같은 줄이나 칸에 같은 숫자가 있습니다
@@ -239,7 +278,8 @@ export default function App() {
               </div>
             </div></div>
 
-            <ProgressPanel progress={progress} match={match} me={me} />
+            <ProgressPanel progress={progress} match={match} me={me}
+              isHost={room?.members.find((x) => x.accountId === me.accountId)?.isHost ?? false} />
             <ChatPanel chat={chat} disabled={match.mode === 'race' && match.rankEligible} />
           </div>
         </div>
@@ -277,7 +317,7 @@ function Wordmark() {
  * (ADR-STACK §4.5 · S5). 로그인 전에도 보이는 이유는 테마가 로그인 화면에도
  * 적용되기 때문이다 — 그래서 저장 위치가 계정이 아니라 브라우저다.
  */
-function Settings() {
+function Settings({ me, onNickname }: { me?: Me | null; onNickname?: (nickname: string) => void }) {
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>('system');
   const btn = useRef<HTMLButtonElement>(null);
@@ -312,11 +352,59 @@ function Settings() {
               <p className="muted" style={{ margin: 0, lineHeight: 1.5 }}>
                 시스템은 기기 설정을 따릅니다. 이 브라우저에만 저장되며 서버로 가지 않습니다.
               </p>
+              {me && <Nickname me={me} onDone={onNickname} />}
             </div>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * 닉네임 변경 — 시즌당 1회 (AUTH K2).
+ *
+ * 횟수 판정은 서버가 한다. 클라이언트가 "이번 시즌에 바꿨는지" 를 따로 들고 있으면
+ * 시즌 경계 계산을 한 벌 더 두는 꼴이라, 여기서는 거절 사유를 그대로 보여 주기만 한다.
+ */
+function Nickname({ me, onDone }: { me: Me; onDone?: (nickname: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(me.nickname);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setErr(null); setBusy(true);
+    const r = await api<Me & { message?: string }>('/api/auth/nickname', 'POST', { nickname: value.trim() });
+    setBusy(false);
+    if (!r.ok) { setErr(r.data?.message ?? '바꾸지 못했습니다'); return; }
+    onDone?.(r.data.nickname); setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <>
+        <div style={{ height: 1, background: 'var(--rule)', margin: '2px 0' }} />
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="muted">닉네임 · {me.nickname}</span>
+          <button className="ghost sm" onClick={() => { setValue(me.nickname); setErr(null); setOpen(true); }}>바꾸기</button>
+        </div>
+      </>
+    );
+  }
+  return (
+    <>
+      <div style={{ height: 1, background: 'var(--rule)', margin: '2px 0' }} />
+      <p className="muted" style={{ margin: 0 }}>닉네임 · 시즌당 한 번</p>
+      <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+        <input value={value} maxLength={16} style={{ flex: 1, minWidth: 0 }} aria-label="새 닉네임"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (isSubmitEnter(e) && !busy) void submit(); }} />
+        <button className="primary sm" disabled={busy || !value.trim() || value.trim() === me.nickname} onClick={() => void submit()}>저장</button>
+        <button className="ghost sm" onClick={() => setOpen(false)}>취소</button>
+      </div>
+      {err && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 12.5 }}>{err}</p>}
+    </>
   );
 }
 
@@ -387,8 +475,10 @@ function Auth({ onDone }: { onDone: (m: Me) => void }) {
 // ── 로비 ────────────────────────────────────────────────────────────────────
 function Lobby({ lobby, onEnter, say }: { lobby: LobbyRoomView[]; onEnter: (r: RoomView) => void; say: (s: string) => void }) {
   const [code, setCode] = useState('');
+  // 공개 여부는 "목록에 뜨는가" 만 정한다 — 비공개 룸도 코드로 들어온다 (ROOM §5)
+  const [isPublic, setIsPublic] = useState(true);
   const create = async () => {
-    const r = await api<RoomView & { message?: string }>('/api/rooms', 'POST', {});
+    const r = await api<RoomView & { message?: string }>('/api/rooms', 'POST', { isPublic });
     if (r.ok) onEnter(r.data); else say(r.data?.message ?? '만들지 못했습니다');
   };
   const join = async (c: string) => {
@@ -406,6 +496,9 @@ function Lobby({ lobby, onEnter, say }: { lobby: LobbyRoomView[]; onEnter: (r: R
           <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="코드 6자리" maxLength={6} style={{ width: 132 }} />
           <button onClick={() => join(code)} disabled={code.length !== 6}>참가</button>
+          <span className="topbar-gap sep" style={{ width: 1, height: 18, background: 'var(--rule)' }} />
+          <Switch label="공개 룸" on={isPublic} disabled={false} onLabel="공개" offLabel="비공개"
+            onToggle={setIsPublic} />
           <button className="primary" onClick={create}>룸 만들기</button>
         </div>
       </div>
@@ -456,6 +549,23 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
   const isHost = room.members.find((m) => m.accountId === me.accountId)?.isHost ?? false;
   const r = room.rules;
   const patch = (p: Partial<typeof r>, follow?: boolean) => send({ t: 'rules:update', patch: p, followStandardLimit: follow });
+  const notReady = room.members.filter((m) => !m.isHost && !m.ready);
+
+  /**
+   * 전원 준비를 기다린 지 60초가 지났는가 (READY §5.1).
+   *
+   * 클라이언트가 잰다 — 서버 상태에 넣으면 룸 스냅샷과 복구 경로가 이 값 때문에 늘어나는데,
+   * 이것은 판정에 쓰이지 않는 **화면 장치**다. 새로고침하면 다시 세는 것은 감수한다.
+   * 미준비자가 없으면 타이머를 접는다 — 다음 사람이 들어오면 그때부터 다시 잰다.
+   */
+  const [stalled, setStalled] = useState(false);
+  const pending = notReady.length > 0;
+  useEffect(() => {
+    if (!pending) { setStalled(false); return; }
+    const timer = setTimeout(() => setStalled(true), 60_000);
+    return () => clearTimeout(timer);
+  }, [pending]);
+
   return (
     <div className="roomgrid">
       <div className="col">
@@ -478,7 +588,7 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
 
         <div className="card col">
           <h2>룰</h2>
-          <RulesGrid r={r} isHost={isHost} patch={patch}
+          <RulesGrid r={r} isHost={isHost} patch={patch} limitNotice={room.limitNotice}
             nonStandardLimit={room.eligibility.reasons.some((x) => x.startsWith('제한 시간'))} />
           <p className="muted" style={{ margin: 0 }}>
             빈칸을 다 채우고 제약 위반이 없으면 제출할 수 있고, <strong>제출은 곧 완주</strong>입니다.
@@ -489,12 +599,26 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
 
         <div className="card">
           <h2>참가자 {room.members.length}/{r.capacity}</h2>
+          {/* 60초가 지나면 미준비자를 드러낸다 — 막지 않고 보이게만 한다 (READY §5.1) */}
+          {isHost && stalled && notReady.length > 0 && (
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="muted" style={{ color: 'var(--warn)' }}>
+                {notReady.map((m) => m.nickname).join(', ')}님이 아직 준비하지 않았습니다
+              </span>
+              <button className="sm" onClick={() => send({ t: 'ready:nudge' })}>재촉하기</button>
+            </div>
+          )}
           {room.members.map((m) => (
-            <div key={m.accountId} className="progress-row">
+            <div key={m.accountId} className="progress-row"
+              style={stalled && !m.isHost && !m.ready ? { background: 'var(--warn-soft)', margin: '0 -18px', padding: '9px 18px' } : undefined}>
               <span>{m.nickname} {m.isHost && <span className="badge">호스트</span>} {!m.connected && <span className="badge warn">연결 끊김</span>}</span>
               <span>{m.isHost ? '—' : m.ready ? <span className="badge ok">준비완료</span> : <span className="badge">미준비</span>}
-                {isHost && !m.isHost && <button className="danger" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 12 }}
-                  onClick={() => send({ t: 'room:kick', accountId: m.accountId })}>내보내기</button>}
+                {isHost && !m.isHost && <>
+                  <button className="ghost sm" style={{ marginLeft: 8 }}
+                    onClick={() => { if (confirm(`${m.nickname}님에게 호스트를 넘깁니다.\n앞으로 룰을 바꾸고 판을 시작하는 것은 그 사람입니다.`)) send({ t: 'host:delegate', accountId: m.accountId }); }}>호스트 넘기기</button>
+                  <button className="danger sm" style={{ marginLeft: 4 }}
+                    onClick={() => { if (confirm(`${m.nickname}님을 내보내시겠습니까?`)) send({ t: 'room:kick', accountId: m.accountId }); }}>내보내기</button>
+                </>}
               </span>
             </div>
           ))}
@@ -519,8 +643,9 @@ function RoomPanel({ room, me, chat, say }: { room: RoomView; me: Me; chat: Chat
  * "표준값" 여부는 클라이언트가 계산하지 않고 서버의 랭크 자격 사유(AREA-ROOM §7)를 읽는다 —
  * 난이도별 표준 제한 시간표를 여기 한 벌 더 두면 언젠가 어긋난다.
  */
-function RulesGrid({ r, isHost, patch, nonStandardLimit }: {
-  r: Rules; isHost: boolean; patch: (p: Partial<Rules>, follow?: boolean) => void; nonStandardLimit: boolean;
+function RulesGrid({ r, isHost, patch, nonStandardLimit, limitNotice }: {
+  r: Rules; isHost: boolean; patch: (p: Partial<Rules>, follow?: boolean) => void;
+  nonStandardLimit: boolean; limitNotice: string | null;
 }) {
   return (
     <div className="rules">
@@ -539,7 +664,10 @@ function RulesGrid({ r, isHost, patch, nonStandardLimit }: {
             onChange={(e) => patch({ limitSec: Number(e.target.value) * 60 }, false)} />
           <span className="k">분{!nonStandardLimit && ' · 표준값'}</span>
           {nonStandardLimit && <button className="ghost sm" disabled={!isHost} onClick={() => patch({}, true)}>표준값으로</button>}
-        </div></div>
+        </div>
+        {/* 막지 않고 알리기만 한다 (RULES §4.3) — 난이도별 중앙값 표는 서버에만 둔다 */}
+        {limitNotice && <p className="muted" style={{ margin: '2px 0 0', color: 'var(--warn)', lineHeight: 1.45 }}>⚠ {limitNotice}</p>}
+      </div>
       <div className="rule-cell"><span className="k">제약 위반 표시</span>
         <Switch label="제약 위반 표시" on={r.violationDisplay === 'show'} disabled={!isHost} onLabel="표시" offLabel="숨김"
           onToggle={(on) => patch({ violationDisplay: on ? 'show' : 'hide' })} /></div>
@@ -572,9 +700,62 @@ function Switch({ on, disabled, onToggle, onLabel, offLabel, label }: {
   );
 }
 
+/**
+ * 칸 이력 팝오버 (COOP §7.2·§7.3)
+ *
+ * **정답 여부는 어디에도 없다** — 플레이 중에는 존재하지 않는 값이다(VISION 원칙 8).
+ * 이력은 "누가 무엇을 넣었나"만 말한다.
+ *
+ * 되돌리기는 별도 명령이 아니라 **그 값을 다시 넣는 입력**이다(§7.3). 그래서 이력에
+ * 새 항목으로 남고 소유 색도 되돌린 사람으로 바뀌며, 남의 칸이면 §5의 덮어쓰기 확인을
+ * 그대로 거친다 — setCell 을 지나가므로 저절로 그렇게 된다.
+ */
+function CellHistory({ h, match, colorOf, onRevert, onClose }: {
+  h: { index: number; entries: CellHistoryEntry[] };
+  match: MatchStarted; colorOf: (id: string) => number;
+  onRevert: (value: number) => void; onClose: () => void;
+}) {
+  const nick = (id: string) => match.participants.find((p) => p.accountId === id)?.nickname ?? id;
+  const rc = `R${Math.floor(h.index / 9) + 1}C${(h.index % 9) + 1}`;
+  const rows = [...h.entries].reverse();          // 최근이 위
+  return (
+    <div className="panel" style={{ width: 'min(92vw, 560px)' }}>
+      <div className="hd"><h3>{rc} 이력</h3><button className="ghost sm" onClick={onClose}>닫기</button></div>
+      <div className="bd" style={{ padding: '6px 16px 12px' }}>
+        {rows.length === 0 && <p className="muted" style={{ margin: '6px 0' }}>아직 아무도 넣지 않았습니다.</p>}
+        {rows.map((e, i) => (
+          <div key={`${e.atEpochMs}-${i}`} className="progress-row">
+            <span className="avatar" style={{ background: AVATAR_COLORS[colorOf(e.accountId) % AVATAR_COLORS.length] }} aria-hidden>
+              {nick(e.accountId).slice(0, 1)}
+            </span>
+            <span className="nm">{nick(e.accountId)}</span>
+            <span className="num" style={{ width: 18, textAlign: 'center' }}>{e.value || '—'}</span>
+            <span className="muted num">{new Date(e.atEpochMs).toLocaleTimeString('ko-KR', { hour12: false })}</span>
+            {i === 0 ? <span className="badge">현재</span>
+              : <button className="ghost sm" onClick={() => onRevert(e.value)}>되돌리기</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── 진행률 · 채팅 · 랭킹 ─────────────────────────────────────────────────────
-function ProgressPanel({ progress, match, me }: { progress: Progress | null; match: MatchStarted; me: Me }) {
+function ProgressPanel({ progress, match, me, isHost }: {
+  progress: Progress | null; match: MatchStarted; me: Me; isHost: boolean;
+}) {
   const of = (id: string) => match.participants.find((p) => p.accountId === id);
+  /**
+   * 진행 중 강퇴 (ROOMLIFE §6.2 ①).
+   *
+   * 대기 중 강퇴와 달리 **결과를 명시한 확인**을 받는다 — 이 사람의 판이 지금 상태로
+   * 확정되고 랭킹까지 간다. 되돌릴 수 없으므로 문구가 그 사실을 그대로 말한다.
+   */
+  const kick = (id: string): void => {
+    const msg = `${nickOf(id)}님을 내보내시겠습니까?\n\n진행 중인 판입니다. 이 사람의 결과는 지금 상태로 확정되어\n결과와 랭킹에 반영됩니다.`;
+    if (confirm(msg)) send({ t: 'room:kick', accountId: id });
+  };
+  const nickOf = (id: string): string => of(id)?.nickname ?? id;
   const nick = (id: string) => of(id)?.nickname ?? id;
   const blanks = match.givens.filter((v) => !v).length || 1;
   /* 아바타 색은 참가자 색인을 따른다 — 협동의 칸 소유 표시와 같은 색이라 눈이 이어진다 */
@@ -599,6 +780,8 @@ function ProgressPanel({ progress, match, me }: { progress: Progress | null; mat
                   <span className="bar"><i style={{ width: `${Math.min(100, (p.filled / blanks) * 100)}%` }} /></span>
                   <span className="num" style={{ fontSize: 12.5 }}>{p.filled}칸</span>
                 </>}
+            {isHost && !p.left && p.accountId !== me.accountId
+              && <button className="danger sm" style={{ padding: '2px 7px', fontSize: 11.5 }} onClick={() => kick(p.accountId)}>내보내기</button>}
           </div>
         ))}
 
@@ -616,6 +799,8 @@ function ProgressPanel({ progress, match, me }: { progress: Progress | null; mat
                 <span className="avatar" style={{ background: hue(m.accountId) }} aria-hidden>{nick(m.accountId).slice(0, 1)}</span>
                 <span className="nm">{nick(m.accountId)}{m.accountId === me.accountId && <span className="muted"> (나)</span>}</span>
                 {m.left ? <span className="badge no">이탈</span> : !m.connected ? <span className="badge warn">연결 끊김</span> : null}
+                {isHost && !m.left && m.accountId !== me.accountId
+                  && <button className="danger sm" style={{ padding: '2px 7px', fontSize: 11.5 }} onClick={() => kick(m.accountId)}>내보내기</button>}
               </div>
             ))}
           </>

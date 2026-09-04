@@ -6,7 +6,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
-  DEFAULT_RULE_STATE, applyRuleUpdate, evaluateEligibility, rankPreset,
+  DEFAULT_RULE_STATE, applyRuleUpdate, evaluateEligibility, rankPreset, shortLimitNotice,
   type RuleState, type Rules,
 } from '@sudoku/core';
 import type { LobbyRoomView, MemberView, RoomView } from '@sudoku/contracts';
@@ -348,6 +348,7 @@ export class RoomService {
       roomId: room.roomId, code: room.code, name: room.name, phase: room.phase,
       isPublic: room.isPublic, rules: room.ruleState.rules, members,
       eligibility: { eligible: e.eligible, reasons: e.reasons },
+      limitNotice: shortLimitNotice(room.ruleState.rules),
       lastResultMatchId: room.lastResultMatchId,
     };
   }
