@@ -9,7 +9,8 @@
 import { Injectable, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ROLLING_30D, generatePuzzle, type Difficulty } from '@sudoku/core';
 import { CONFIG } from '../config.js';
-import type { PuzzleRow, ResultStore } from '../storage/ports.js';
+import type { PuzzleRow, ResultStore, StateStore } from '../storage/ports.js';
+import { randomUUID } from 'node:crypto';
 
 const DIFFICULTIES: Difficulty[] = ['intro', 'normal', 'hard', 'expert', 'nightmare'];
 
@@ -21,10 +22,28 @@ export class PuzzlePoolService implements OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private filling = false;
 
-  constructor(@Inject('ResultStore') private readonly db: ResultStore) {}
+  constructor(
+    @Inject('ResultStore') private readonly db: ResultStore,
+    @Inject('StateStore') private readonly state: StateStore,
+  ) {}
+
+  /**
+   * 채우기는 **클러스터에서 한 노드만** 한다.
+   *
+   * 생성은 CPU 를 오래 문다(악몽 등급은 폐기 13회). 파드마다 15초마다 돌면 그 비용이
+   * 파드 수만큼 곱해지고, 실시간 판을 굴리는 이벤트 루프가 그만큼 막힌다. 결과가
+   * 틀어지지는 않지만(`ON CONFLICT DO NOTHING`) 낭비가 그대로 지연이 된다.
+   *
+   * 잠금을 **기다리지 않는다** — 다른 노드가 채우는 중이면 이번 주기는 건너뛴다.
+   * 15초 뒤에 또 온다.
+   */
+  private static readonly FILL_LOCK = 'lock:puzzle-topup';
 
   async topUp(minStock = CONFIG.poolMinStock): Promise<Record<string, number>> {
     if (this.filling) return {};
+    const token = randomUUID();
+    // 한 바퀴가 오래 걸릴 수 있다 — 수명을 넉넉히 두고, 끝나면 바로 푼다
+    if (!(await this.state.acquire(PuzzlePoolService.FILL_LOCK, token, 120_000))) return {};
     this.filling = true;
     const made: Record<string, number> = {};
     try {
@@ -42,7 +61,10 @@ export class PuzzlePoolService implements OnModuleDestroy {
           have++;
         }
       }
-    } finally { this.filling = false; }
+    } finally {
+      this.filling = false;
+      await this.state.release(PuzzlePoolService.FILL_LOCK, token);
+    }
     return made;
   }
 

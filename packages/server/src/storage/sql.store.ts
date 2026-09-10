@@ -15,6 +15,16 @@ import type {
 export class SqlResultStore implements ResultStore {
   constructor(private readonly db: SqlDriver) {}
 
+  /**
+   * 스키마를 만든다. **여럿이 동시에 부르면 안 된다.**
+   *
+   * `CREATE TABLE IF NOT EXISTS` 는 멱등해 보이지만 동시에 돌면 그렇지 않다 —
+   * 두 세션이 같은 순간에 만들면 한쪽이 `duplicate key value violates unique
+   * constraint "pg_type_typname_nsp_index"` 로 터진다. Postgres 의 알려진 경합이다.
+   * 파드가 하나였을 때는 부를 사람이 하나뿐이라 드러나지 않았다.
+   *
+   * 부르는 쪽(app.module.ts)이 분산 잠금 아래에서 부른다.
+   */
   async init(): Promise<void> {
     await this.db.exec(`
       CREATE TABLE IF NOT EXISTS account (
@@ -221,15 +231,29 @@ export class SqlResultStore implements ResultStore {
       'SELECT COUNT(*)::int AS n FROM puzzle WHERE difficulty=$1 AND taken=FALSE', [difficulty]));
     return Number(r[0]?.['n'] ?? 0);
   }
+  /**
+   * 한 문장으로 고른다 — **고르기와 표시가 갈라지면 안 된다.**
+   *
+   * 종전에는 SELECT 로 하나 뽑고 UPDATE 로 표시했다. 서버가 하나였을 때는 룸 잠금이
+   * 그 사이를 지켜 주었지만, 노드가 여럿이면 두 노드가 **같은 퍼즐을 뽑아** 서로 다른
+   * 두 판에 같은 문제가 나간다. 잠금에 기대는 대신 문장 하나로 만든다.
+   *
+   * `FOR UPDATE SKIP LOCKED` 는 남이 지금 집는 중인 행을 기다리지 않고 건너뛴다 —
+   * 동시에 여러 판이 열려도 서로를 막지 않는다.
+   */
   async takePuzzle(difficulty: string, excludeIds: string[]): Promise<PuzzleRow | null> {
     const r = this.rows<Record<string, unknown>>(await this.db.query(
-      `SELECT * FROM puzzle WHERE difficulty=$1 AND taken=FALSE AND NOT (puzzle_id = ANY($2::text[]))
-       ORDER BY created_at ASC LIMIT 1`, [difficulty, excludeIds]));
+      `UPDATE puzzle SET taken=TRUE
+        WHERE puzzle_id = (
+          SELECT puzzle_id FROM puzzle
+           WHERE difficulty=$1 AND taken=FALSE AND NOT (puzzle_id = ANY($2::text[]))
+           ORDER BY created_at ASC LIMIT 1
+           FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *`, [difficulty, excludeIds]));
     if (!r[0]) return null;
-    const id = r[0]['puzzle_id'] as string;
-    await this.db.query('UPDATE puzzle SET taken=TRUE WHERE puzzle_id=$1', [id]);
     return {
-      puzzleId: id, difficulty, seed: Number(r[0]['seed']),
+      puzzleId: r[0]['puzzle_id'] as string, difficulty, seed: Number(r[0]['seed']),
       givens: r[0]['givens'] as number[], solution: r[0]['solution'] as number[],
       path: r[0]['path'], clues: Number(r[0]['clues']), createdAtEpochMs: Number(r[0]['created_at']),
     };

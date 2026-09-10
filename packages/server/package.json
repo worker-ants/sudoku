@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts",
-    "build": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "start": "node dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@types/pg": "^8.15.5",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.23.13"
   }
 }

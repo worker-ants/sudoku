@@ -6,6 +6,15 @@
 const SERVER = process.env.SERVER_ORIGIN ?? 'http://localhost:4000';
 export default {
   reactStrictMode: false,
+  /**
+   * 컨테이너용 최소 산출물. `.next/standalone` 에 server.js 와 **실제로 쓰이는**
+   * node_modules 만 추린다 — 이미지가 node_modules 를 통째로 싣지 않아도 된다.
+   *
+   * pnpm 워크스페이스라 추적 기준점을 저장소 루트로 올려야 한다. 기본값은 이 패키지
+   * 디렉터리인데, 그러면 심링크로 걸린 워크스페이스 의존성이 추적 밖으로 떨어진다.
+   */
+  output: 'standalone',
+  outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${SERVER}/api/:path*` },

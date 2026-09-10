@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PgliteResultStore } from '../src/storage/sql.store.js';
 import { FileStateStore } from '../src/storage/file-state.store.js';
+import { RedisStateStore } from '../src/storage/redis-state.store.js';
+import type { StateStore } from '../src/storage/ports.js';
+import { CONFIG } from '../src/config.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -138,4 +141,85 @@ describe('진행 중 상태 — 재시작을 견딘다', () => {
     await s.close();
     rmSync(dir, { recursive: true, force: true });
   });
+});
+
+/**
+ * 분산 잠금 (storage/ports.ts 의 acquire·release·renew)
+ *
+ * 노드를 건너 거는 잠금의 바닥이다. **어댑터를 골라 가며 같은 시험을 돌린다** —
+ * `REDIS_URL` 이 있으면 Redis 어댑터까지 포함된다. 운영에서 쓰이는 것이 그쪽이고,
+ * 그쪽에는 Lua 스크립트가 있어 파일 어댑터로는 한 줄도 확인되지 않는다.
+ */
+describe('분산 잠금', () => {
+  const adapters: { name: string; make: () => Promise<{ store: StateStore; cleanup: () => Promise<void> }> }[] = [
+    {
+      name: '파일',
+      make: async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'sudoku-lock-'));
+        const store = new FileStateStore(join(dir, 'state.json'));
+        return { store, cleanup: async () => { await store.close(); rmSync(dir, { recursive: true, force: true }); } };
+      },
+    },
+  ];
+
+  if (CONFIG.redisUrl) {
+    adapters.push({
+      name: 'Redis',
+      make: async () => {
+        const { default: Redis } = await import('ioredis');
+        const ns = `locktest_${Math.random().toString(36).slice(2, 8)}`;
+        const client = new Redis(CONFIG.redisUrl!);
+        const store = new RedisStateStore(client as never, ns);
+        return {
+          store,
+          cleanup: async () => { for (const k of await store.keys('')) await store.del(k); await store.close(); },
+        };
+      },
+    });
+  }
+
+  for (const adapter of adapters) {
+    describe(adapter.name, () => {
+      let store: StateStore;
+      let cleanup: () => Promise<void>;
+      beforeAll(async () => { ({ store, cleanup } = await adapter.make()); }, 30000);
+      afterAll(async () => { await cleanup?.(); });
+
+      it('한 사람만 들어간다', async () => {
+        expect(await store.acquire('k1', 'alice', 5000)).toBe(true);
+        expect(await store.acquire('k1', 'bob', 5000)).toBe(false);
+        await store.release('k1', 'alice');
+        expect(await store.acquire('k1', 'bob', 5000)).toBe(true);
+        await store.release('k1', 'bob');
+      });
+
+      it('남의 잠금은 풀지 못한다 — 토큰이 그 창을 닫는다', async () => {
+        expect(await store.acquire('k2', 'alice', 5000)).toBe(true);
+        await store.release('k2', 'bob');                       // 엉뚱한 토큰
+        expect(await store.acquire('k2', 'bob', 5000)).toBe(false);   // 아직 alice 것이다
+        await store.release('k2', 'alice');
+      });
+
+      it('수명이 끝나면 저절로 풀린다', async () => {
+        expect(await store.acquire('k3', 'alice', 60)).toBe(true);
+        expect(await store.acquire('k3', 'bob', 60)).toBe(false);
+        await new Promise((r) => setTimeout(r, 120));
+        expect(await store.acquire('k3', 'bob', 5000)).toBe(true);
+        await store.release('k3', 'bob');
+      });
+
+      it('가진 사람만 수명을 늘린다', async () => {
+        expect(await store.acquire('k4', 'alice', 120)).toBe(true);
+        expect(await store.renew('k4', 'bob', 5000)).toBe(false);     // 남의 것은 못 늘린다
+        expect(await store.renew('k4', 'alice', 5000)).toBe(true);
+        await new Promise((r) => setTimeout(r, 200));
+        expect(await store.acquire('k4', 'bob', 5000)).toBe(false);   // 첫 수명(120ms)은 지났지만 살아 있다
+        await store.release('k4', 'alice');
+      });
+
+      it('없는 잠금은 늘릴 것도 없다', async () => {
+        expect(await store.renew('k5', 'alice', 5000)).toBe(false);
+      });
+    });
+  }
 });

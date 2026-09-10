@@ -17,6 +17,23 @@ export interface StateStore {
   set<T>(key: string, value: T, ttlMs?: number): Promise<void>;
   del(key: string): Promise<void>;
   keys(prefix: string): Promise<string[]>;
+
+  /**
+   * 분산 잠금의 바닥 세 가지.
+   *
+   * 노드가 여럿이면 프로세스 안 잠금으로는 부족하다 — 두 노드가 같은 룸을 동시에
+   * 읽어 서로의 수정을 덮는다. 잠금을 **상태 저장소에** 두는 이유는 그것이 노드들이
+   * 공유하는 유일한 자리이기 때문이다.
+   *
+   * `token` 은 잠금의 주인을 가린다. 이것이 없으면 A 가 늦게 끝나 TTL 로 풀린 잠금을
+   * B 가 잡은 뒤, A 가 돌아와 **B 의 잠금을 푼다**. 토큰을 대조해야 그 창이 닫힌다.
+   */
+  acquire(key: string, token: string, ttlMs: number): Promise<boolean>;
+  /** 내가 건 것일 때만 푼다 */
+  release(key: string, token: string): Promise<void>;
+  /** 내가 건 것일 때만 수명을 늘린다. 잃었으면 false */
+  renew(key: string, token: string, ttlMs: number): Promise<boolean>;
+
   close(): Promise<void>;
 }
 

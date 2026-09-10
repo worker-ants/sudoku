@@ -12,7 +12,7 @@ import {
 import type { LobbyRoomView, MemberView, RoomView } from '@sudoku/contracts';
 import { CONFIG } from '../config.js';
 import type { StateStore } from '../storage/ports.js';
-import { KeyedMutex } from './keyed-mutex.js';
+import { DistributedMutex } from './distributed-mutex.js';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';   // 0 O 1 I L 제외 (L2)
 export const generateRoomCode = (rand = Math.random): string =>
@@ -29,6 +29,11 @@ export interface RoomState {
   hostAccountId: string; phase: RoomPhase;
   ruleState: RuleState; members: RoomMember[];
   currentMatchId: string | null; lastResultMatchId: string | null;
+  /**
+   * 진행 중인 판의 종료 시각. 판 상태가 아니라 **룸에** 둔다 — 로비 목록의 남은 시간을
+   * 그리려면 판을 갖고 있지 않은 노드도 이 값을 알아야 하기 때문이다.
+   */
+  currentMatchEndsAtMs: number | null;
   banned: string[]; createdAtMs: number; lastActivityAtMs: number;
   /** 진행 중 나갔거나 강퇴당한 사람 — 그 판에 다시 들어올 수 없다 */
   leftDuringMatch: string[];
@@ -47,17 +52,23 @@ const membershipKey = (accountId: string) => `membership:${accountId}`;
 
 @Injectable()
 export class RoomService {
-  /** 룸 하나의 읽고-고쳐-쓰기를 직렬화한다 — keyed-mutex.ts 에 이유가 있다. */
-  private readonly lock = new KeyedMutex();
+  /** 룸의 읽고-고쳐-쓰기를 직렬화한다 — distributed-mutex.ts 에 이유가 있다. */
+  private readonly lock: DistributedMutex;
 
-  constructor(@Inject('StateStore') private readonly state: StateStore) {}
+  constructor(@Inject('StateStore') private readonly state: StateStore) {
+    this.lock = new DistributedMutex(state);
+  }
 
   /**
    * 룸 변경을 한 줄로 세운다.
    *
    * 키를 룸별로 쪼개는 편이 조밀하지만, 룸을 옮기는 연산(참가)이 **두 룸**을 건드리므로
-   * 잠금 순서와 재진입을 함께 다뤄야 한다. v1 은 서버 프로세스가 하나이고 룸 변경은
-   * Redis 왕복 몇 번이라, 전역 한 줄이 더 싸고 확실히 옳다. 조밀하게 나눌 자리는 여기다.
+   * 잠금 순서와 재진입을 함께 다뤄야 한다. 룸 변경은 사람 손 속도로 일어나고(참가·준비·룰)
+   * 초당 몇 백 번을 넘지 않으므로, 전역 한 줄이 더 싸고 확실히 옳다.
+   *
+   * 노드가 여럿이 된 뒤에도 이 판단은 그대로다 — 다만 줄이 이제 **클러스터 전체에
+   * 하나**다. 칸 입력 같은 잦은 경로는 이 잠금을 지나지 않는다(판은 소유 노드가 든다).
+   * 조밀하게 나눌 자리는 여전히 여기다.
    */
   withLock<T>(fn: () => Promise<T>): Promise<T> { return this.lock.run('rooms', fn); }
 
@@ -93,7 +104,7 @@ export class RoomService {
       hostAccountId: account.accountId, phase: 'waiting',
       ruleState: { rules: { ...DEFAULT_RULE_STATE.rules }, followStandardLimit: true },
       members: [{ accountId: account.accountId, nickname: account.nickname, ready: false, connected: true, joinedAtMs: now, colorIndex: 0, disconnectedAtMs: null }],
-      currentMatchId: null, lastResultMatchId: null, banned: [],
+      currentMatchId: null, currentMatchEndsAtMs: null, lastResultMatchId: null, banned: [],
       createdAtMs: now, lastActivityAtMs: now, leftDuringMatch: [],
     };
     await this.save(room);

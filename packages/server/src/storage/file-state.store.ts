@@ -63,6 +63,31 @@ export class FileStateStore implements StateStore {
     this.flush();
   }
   async del(key: string): Promise<void> { this.data.delete(key); this.flush(); }
+
+  /**
+   * 잠금 세 가지 — 파일 어댑터는 **한 프로세스 안**이라 Map 검사만으로 원자적이다.
+   * (자바스크립트는 await 사이에서만 양보한다. 아래 셋은 await 를 건너지 않는다.)
+   *
+   * 잠금을 파일에 쓰지 않는다. 잠금은 살아 있는 프로세스의 것이고, 재시작하면
+   * 풀리는 편이 옳다 — 파일에 남기면 죽은 프로세스의 잠금이 부활한다.
+   */
+  private readonly locks = new Map<string, { token: string; until: number }>();
+  async acquire(key: string, token: string, ttlMs: number): Promise<boolean> {
+    const now = Date.now();
+    const cur = this.locks.get(key);
+    if (cur && cur.until > now && cur.token !== token) return false;
+    this.locks.set(key, { token, until: now + ttlMs });
+    return true;
+  }
+  async release(key: string, token: string): Promise<void> {
+    if (this.locks.get(key)?.token === token) this.locks.delete(key);
+  }
+  async renew(key: string, token: string, ttlMs: number): Promise<boolean> {
+    const cur = this.locks.get(key);
+    if (!cur || cur.token !== token || cur.until <= Date.now()) return false;
+    cur.until = Date.now() + ttlMs;
+    return true;
+  }
   async keys(prefix: string): Promise<string[]> {
     if (this.sweep(Date.now())) this.flush();
     return [...this.data.keys()].filter((k) => k.startsWith(prefix));

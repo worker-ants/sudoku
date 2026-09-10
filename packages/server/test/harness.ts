@@ -8,16 +8,18 @@ import { io, type Socket } from 'socket.io-client';
 import type { ClientMessage, ServerMessage } from '@sudoku/contracts';
 import { generatePuzzle, type Difficulty } from '@sudoku/core';
 import { AppModule } from '../src/app.module.js';
-import { setDataDir, setSchema } from '../src/runtime-config.js';
+import { setDataDir, setSchema, setSharedBus, setSharedResultStore, setSharedStateStore } from '../src/runtime-config.js';
 import { MatchService } from '../src/match/match.service.js';
 import { RealtimeGateway } from '../src/realtime/gateway.js';
 import { RoomService } from '../src/room/room.service.js';
 import type { ResultStore, StateStore } from '../src/storage/ports.js';
+import type { Bus } from '../src/cluster/bus.js';
 import { CONFIG } from '../src/config.js';
 
 export interface Harness {
   app: INestApplication; url: string; dir: string;
-  db: ResultStore; matches: MatchService; rooms: RoomService; gateway: RealtimeGateway;
+  db: ResultStore; state: StateStore; bus: Bus;
+  matches: MatchService; rooms: RoomService; gateway: RealtimeGateway;
   seedPuzzle(difficulty: Difficulty, seed?: number): Promise<{ givens: number[]; solution: number[]; puzzleId: string }>;
   stop(keepDir?: boolean): Promise<void>;
 }
@@ -44,19 +46,34 @@ async function settleRooms(rooms: RoomService, timeoutMs = 3000): Promise<void> 
   }
 }
 
-export async function startHarness(reuseDir?: string): Promise<Harness> {
+/**
+ * 한 노드를 띄운다.
+ *
+ * `cluster` 를 주면 그 노드는 **이미 있는 클러스터에 합류한다** — 상태 저장소와 버스를
+ * 새로 만들지 않고 넘겨받은 것을 쓴다. 운영에서 Redis 하나를 여러 파드가 나눠 보는 것과
+ * 같은 모양이고, 두 노드짜리 시험(e2e-cluster)이 그것에 기댄다.
+ */
+export async function startHarness(reuseDir?: string, cluster?: { state: StateStore; bus: Bus; db: ResultStore }): Promise<Harness> {
   const dir = reuseDir ?? mkdtempSync(join(tmpdir(), 'sudoku-e2e-'));
   setDataDir(dir);
   // DATABASE_URL 로 진짜 Postgres 에 붙는 경우, 하네스마다 제 스키마를 쓴다.
   // 디렉터리에서 이름을 뽑으므로 재개(reuseDir)하면 같은 스키마로 돌아온다 — 복구 시험이 그것에 기댄다.
   setSchema(`t_${dir.split(/[\\/]/).pop()!.replace(/[^a-zA-Z0-9]/g, '_')}`);
+  setSharedStateStore(cluster?.state ?? null);
+  setSharedBus(cluster?.bus ?? null);
+  setSharedResultStore(cluster?.db ?? null);
   const app = await NestFactory.create(AppModule, { logger: false, cors: { origin: true, credentials: true } });
   await app.listen(0);
   const url = await app.getUrl();
   const db = app.get<ResultStore>('ResultStore');
   const state = app.get<StateStore>('StateStore');
+  const bus = app.get<Bus>('Bus');
+  // 중계를 듣기 시작한다. 이것이 빠지면 나가는 메시지가 버스에만 실리고 소켓에 닿지 않는다.
+  await app.get(RealtimeGateway).joinCluster();
+  // 공유 자원은 다음 노드가 제 것을 만들지 않도록 남겨 두고, 아니면 바로 푼다
+  setSharedStateStore(null); setSharedBus(null); setSharedResultStore(null);
   return {
-    app, url: url.replace('[::1]', '127.0.0.1'), dir, db,
+    app, url: url.replace('[::1]', '127.0.0.1'), dir, db, state, bus,
     matches: app.get(MatchService), rooms: app.get(RoomService), gateway: app.get(RealtimeGateway),
     async seedPuzzle(difficulty, seed) {
       const r = generatePuzzle(difficulty, { seed: seed ?? 20260901, maxAttempts: 400 });
@@ -77,9 +94,11 @@ export async function startHarness(reuseDir?: string): Promise<Harness> {
      */
     async stop(keepDir = false) {
       await app.close();                 // 타이머부터 세운다 — 지운 자리를 두드리면 안 된다
+      await app.get(MatchService).shutdown();   // 소유권을 놓는다 — 다음 노드가 기다리지 않도록
       await settleRooms(app.get(RoomService));
 
-      if (!keepDir) {
+      // 클러스터에 합류한 노드는 남의 살림을 치우지 않는다 — 아직 쓰는 노드가 있다
+      if (!keepDir && !cluster) {
         // 남긴 상태를 지운다. 파일 어댑터는 아래 rmSync 로 통째 사라지지만 **Redis 에는
         // 그런 것이 없어**, 지우지 않으면 이 하네스의 이름공간이 서버에 그대로 쌓인다.
         // rmSync 의 대응물이 여기다.
@@ -89,8 +108,8 @@ export async function startHarness(reuseDir?: string): Promise<Harness> {
         await d.db?.dropSchema?.();
       }
 
-      await state.close();
-      await db.close();
+      // 클러스터에서 빌려 쓴 것은 닫지 않는다 — 다른 노드가 아직 쓰고 있다
+      if (!cluster) { await bus.close(); await state.close(); await db.close(); }
 
       if (!keepDir) {
         rmSync(dir, { recursive: true, force: true });
@@ -111,7 +130,14 @@ export interface Client {
   close(): void;
 }
 
-export async function signUp(h: Harness, nickname: string): Promise<Client> {
+/**
+ * 가입하고 소켓까지 연다.
+ *
+ * `socketOn` 을 주면 **소켓만 다른 노드에** 붙인다 — 두 노드짜리 시험이 "A 에 가입한
+ * 사람이 B 에 접속한" 상황을 만드는 데 쓴다. 세션 쿠키는 두 노드가 같은 저장소를
+ * 보므로 그대로 통한다.
+ */
+export async function signUp(h: Harness, nickname: string, opts: { socketOn?: Harness } = {}): Promise<Client> {
   const email = `${nickname.toLowerCase()}@example.com`;
   const res = await fetch(`${h.url}/api/auth/signup`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -121,7 +147,7 @@ export async function signUp(h: Harness, nickname: string): Promise<Client> {
   const acc = (await res.json()) as { accountId: string; nickname: string };
   const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0]!;
 
-  const socket = io(h.url, { transports: ['websocket'], extraHeaders: { cookie }, forceNew: true });
+  const socket = io((opts.socketOn ?? h).url, { transports: ['websocket'], extraHeaders: { cookie }, forceNew: true });
   const inbox: ServerMessage[] = [];
   socket.on('msg', (m: ServerMessage) => inbox.push(m));
   await new Promise<void>((resolve, reject) => {

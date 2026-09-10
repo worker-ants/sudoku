@@ -1,2 +1,9 @@
 packages:
   - packages/*
+
+# 네이티브·바이너리 의존성의 install 스크립트를 명시적으로 승인한다.
+# pnpm 11 은 승인되지 않은 빌드 스크립트를 경고가 아니라 **오류로** 막는다 —
+# 이 블록이 없으면 `pnpm test` 를 포함한 모든 스크립트가 ERR_PNPM_IGNORED_BUILDS 로 죽는다.
+allowBuilds:
+  argon2: true    # 비밀번호 해시 (node-gyp-build)
+  esbuild: true   # tsx 가 끌고 온다

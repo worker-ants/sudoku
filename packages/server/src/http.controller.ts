@@ -7,6 +7,22 @@ import { RoomError, RoomService } from './room/room.service.js';
 import { RankingService } from './ranking/ranking.service.js';
 import { RealtimeGateway } from './realtime/gateway.js';
 
+/**
+ * 세션 쿠키의 속성 한 벌.
+ *
+ * 세 자리(가입·로그인·로그아웃)가 한 상수를 본다. 지우는 쪽이 `path` 를 빠뜨리면
+ * 브라우저가 다른 쿠키로 보고 지우지 않으므로, 굽는 곳과 지우는 곳을 갈라 두지 않는다.
+ *
+ * `secure` 는 운영에서만 켠다. 로컬과 시험은 http 로 도는데 Secure 쿠키는 http 응답에서
+ * 무시되므로, 무조건 켜면 개발이 통째로 막힌다.
+ */
+const SID_COOKIE = {
+  httpOnly: true,
+  sameSite: 'lax',
+  path: '/',
+  secure: process.env['NODE_ENV'] === 'production',
+} as const;
+
 const sidOf = (req: Request): string | undefined => {
   const raw = req.headers.cookie ?? '';
   const m = /(?:^|;\s*)sid=([^;]+)/.exec(raw);
@@ -39,7 +55,7 @@ export class HttpController {
     try {
       const acc = await this.auth.signUp(b);
       const sid = await this.auth.createSession(acc.accountId);
-      res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: CONFIG.sessionTtlMs });
+      res.cookie('sid', sid, { ...SID_COOKIE, maxAge: CONFIG.sessionTtlMs });
       return acc;
     } catch (e) { return fail(e); }
   }
@@ -49,7 +65,7 @@ export class HttpController {
     try {
       const acc = await this.auth.logIn(b.email, b.password);
       const sid = await this.auth.createSession(acc.accountId);
-      res.cookie('sid', sid, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: CONFIG.sessionTtlMs });
+      res.cookie('sid', sid, { ...SID_COOKIE, maxAge: CONFIG.sessionTtlMs });
       return acc;
     } catch (e) { return fail(e); }
   }
@@ -57,7 +73,7 @@ export class HttpController {
   @Post('auth/logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     await this.auth.destroySession(sidOf(req));
-    res.clearCookie('sid', { path: '/' });
+    res.clearCookie('sid', SID_COOKIE);
     return { ok: true };
   }
 

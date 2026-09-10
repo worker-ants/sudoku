@@ -4,17 +4,24 @@
 # 언젠가 갈라지므로 **기본값을 두지 않고**, 없으면 `${VAR:?}` 가 즉시 멈춘다.
 #   cp .env.example .env && docker compose up -d
 #
+# Postgres 는 18 이다. 인프로세스 시험용 PGlite 도 이미 PG18(18.3)이라, 이 선택으로
+# 시험과 개발 컨테이너의 메이저가 맞는다.
+#
 # 포트는 5432/6379 가 아니라 5433/6380 이다 — 같은 머신에서 도는 다른 스택과
 # 부딪히지 않게 하려는 것이고, 이 프로젝트가 남의 DB 에 끼어들지 않는다는 뜻이기도 하다.
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?.env 가 없다 — cp .env.example .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env 를 확인하라}
       POSTGRES_DB: ${POSTGRES_DB:?.env 를 확인하라}
     ports: ['127.0.0.1:${POSTGRES_PORT:?.env 를 확인하라}:5432']
-    volumes: ['pgdata:/var/lib/postgresql/data']
+    # **경로가 /data 가 아니다.** 18 부터 이미지가 PGDATA 를 메이저별 이름으로 옮겼고
+    # (/var/lib/postgresql/18/docker) 볼륨 지점도 한 칸 위로 올렸다. alpine 변종도 같다.
+    # 게다가 entrypoint 는 옛 경로에 마운트가 있기만 해도 — 비어 있어도 — 기동을 거부한다.
+    # 여기를 /data 로 되돌리면 데이터가 조용히 새는 게 아니라 컨테이너가 아예 뜨지 않는다.
+    volumes: ['pgdata:/var/lib/postgresql']
     healthcheck:
       # 컨테이너 안의 environment 를 그대로 쓴다 — 사용자·DB 이름을 여기 또 적지 않는다.
       # `$$` 는 compose 가 치환하지 말고 컨테이너 셸에 `$` 로 넘기라는 뜻이다.

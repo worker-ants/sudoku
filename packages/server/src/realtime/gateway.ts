@@ -1,6 +1,15 @@
 /**
  * socket.io 게이트웨이 — **나가는 메시지의 단일 지점**이다.
  * 여기를 지나지 않고 나가는 페이로드는 없고, 그래서 전송 가드가 자동으로 따라붙는다.
+ *
+ * ── 노드가 여럿일 때 ──────────────────────────────────────────────────────
+ * 한 룸의 참가자들이 서로 다른 노드에 붙어 있을 수 있다. 그래서 나가는 메시지는
+ * 소켓에 바로 쓰지 않고 **버스에 실어 모든 노드가 자기 소켓에 뿌린다.**
+ *
+ * **가드는 메시지를 만든 노드에서 한 번 돈다.** 정답을 알고 있는 노드가 그 판을 가진
+ * 노드이고, 검사는 정답과 대조하는 일이라 그 자리에서만 뜻이 있다. 중계를 받은 노드는
+ * 이미 검사를 통과한 페이로드를 전달만 한다 — 검사를 건너뛰는 것이 아니라, 검사가
+ * 일어난 곳이 한 칸 앞일 뿐이다.
  */
 import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import {
@@ -18,8 +27,17 @@ import { PuzzlePoolService } from '../match/puzzle-pool.service.js';
 import { RankingService } from '../ranking/ranking.service.js';
 import { assertNoSolutionLeak, SolutionLeakError } from './emit-guard.js';
 import { TokenBucket, chatOpen, CHAT_MAX_LEN } from './chat.js';
+import { RELAY_CHANNEL, type Bus } from '../cluster/bus.js';
+import type { StateStore } from '../storage/ports.js';
 
 interface SocketData { accountId: string; nickname: string; roomId: string | null; bucket: TokenBucket }
+
+/** 버스에 실려 노드들 사이를 오가는 것 */
+type Relay =
+  | { kind: 'room'; roomId: string; msg: ServerMessage }
+  | { kind: 'account'; accountId: string; msg: ServerMessage }
+  /** 계정당 소켓 하나 — 다른 노드에 남은 옛 연결을 끊게 한다 */
+  | { kind: 'evict'; accountId: string; exceptNodeId: string; exceptSocketId: string };
 
 @Injectable()
 @WebSocketGateway({ cors: { origin: true, credentials: true } })
@@ -37,6 +55,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     @Inject(MatchService) private readonly matches: MatchService,
     @Inject(PuzzlePoolService) private readonly pool: PuzzlePoolService,
     @Inject(RankingService) private readonly ranking: RankingService,
+    @Inject('Bus') private readonly bus: Bus,
+    @Inject('NodeId') private readonly nodeId: string,
+    @Inject('StateStore') private readonly state: StateStore,
   ) {
     this.matches.wire(
       (roomId, msg) => this.toRoom(roomId, msg),
@@ -48,6 +69,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           if (!room) return null;
           room.phase = 'result';
           room.currentMatchId = null;
+          room.currentMatchEndsAtMs = null;
           room.lastResultMatchId = m.matchId;
           room.lastActivityAtMs = Date.now();
           for (const mem of room.members) mem.ready = false;
@@ -78,26 +100,76 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   // ── 단일 emit 지점 ───────────────────────────────────────────────────────
-  private emit(socket: Socket, msg: ServerMessage, opts: { finalizedMatchId?: string } = {}): void {
-    const data = socket.data as SocketData;
-    const match = data.roomId ? this.matches.matchOfRoom(data.roomId) : null;
+  //
+  // 세 단계로 나뉜다.
+  //   check    정답 유출 검사. **메시지를 만든 노드에서** 한 번 돈다.
+  //   toRoom/toAccount   검사를 통과한 것을 버스에 싣는다.
+  //   deliver  중계를 받아 이 노드의 소켓에 쓴다.
+  //
+  // 노드가 하나뿐이면 발행이 자기에게 돌아와 deliver 로 이어진다 — 경로가 하나다.
+
+  /** 통과하면 true. 막히면 로그를 남기고 false — 조용히 나가는 일은 없다 */
+  private check(match: { solution?: readonly number[]; finalizedAtEpochMs: number | null } | null, msg: ServerMessage, opts: { finalizedMatchId?: string }): boolean {
     const finalized = opts.finalizedMatchId !== undefined || match === null || match.finalizedAtEpochMs !== null;
     try {
       assertNoSolutionLeak(msg, { solution: match?.solution, finalized });
+      return true;
     } catch (e) {
-      if (e instanceof SolutionLeakError) { this.log.error(`전송 차단 — ${e.message}`); return; }
+      if (e instanceof SolutionLeakError) { this.log.error(`전송 차단 — ${e.message}`); return false; }
       throw e;
     }
+  }
+
+  /** 이 소켓 하나에만 — 검사도 여기서 한다 (요청을 받은 노드가 곧 답하는 자리) */
+  private emit(socket: Socket, msg: ServerMessage, opts: { finalizedMatchId?: string } = {}): void {
+    const data = socket.data as SocketData;
+    const match = data.roomId ? this.matches.matchOfRoom(data.roomId) : null;
+    if (!this.check(match, msg, opts)) return;
     socket.emit('msg', msg);
   }
+
   private toRoom(roomId: string, msg: ServerMessage, opts: { finalizedMatchId?: string } = {}): void {
-    for (const s of this.server.sockets.sockets.values()) {
-      if ((s.data as SocketData)?.roomId === roomId) this.emit(s, msg, opts);
+    if (!this.check(this.matches.matchOfRoom(roomId), msg, opts)) return;
+    void this.bus.publish(RELAY_CHANNEL, { kind: 'room', roomId, msg } satisfies Relay);
+  }
+
+  private toAccount(accountId: string, msg: ServerMessage): void {
+    // 이 계정이 낀 판을 찾아 검사 문맥을 만든다. 소켓이 이 노드에 없을 수도 있으므로
+    // (다른 노드에 붙어 있고 우리는 판만 가진 경우) 판 쪽에서 먼저 찾는다.
+    const match = this.matches.matchOfParticipant(accountId)
+      ?? (() => { const r = (this.sockets.get(accountId)?.data as SocketData | undefined)?.roomId; return r ? this.matches.matchOfRoom(r) : null; })();
+    if (!this.check(match, msg, {})) return;
+    void this.bus.publish(RELAY_CHANNEL, { kind: 'account', accountId, msg } satisfies Relay);
+  }
+
+  /** 중계를 받아 이 노드의 소켓에 쓴다 — 검사는 보낸 노드에서 이미 끝났다 */
+  private deliver(relay: Relay): void {
+    switch (relay.kind) {
+      case 'room':
+        for (const s of this.server.sockets.sockets.values()) {
+          if ((s.data as SocketData)?.roomId === relay.roomId) s.emit('msg', relay.msg);
+        }
+        return;
+      case 'account': {
+        const s = this.sockets.get(relay.accountId);
+        if (s) s.emit('msg', relay.msg);
+        return;
+      }
+      case 'evict': {
+        const s = this.sockets.get(relay.accountId);
+        if (!s) return;
+        if (this.nodeId === relay.exceptNodeId && s.id === relay.exceptSocketId) return;   // 새 연결 본인
+        s.emit('msg', { t: 'notice', level: 'warn', code: 'replaced', text: '다른 곳에서 접속했습니다' } satisfies ServerMessage);
+        this.sockets.delete(relay.accountId);
+        s.disconnect(true);
+        return;
+      }
     }
   }
-  private toAccount(accountId: string, msg: ServerMessage): void {
-    const s = this.sockets.get(accountId);
-    if (s) this.emit(s, msg);
+
+  /** 노드가 뜰 때 중계를 듣기 시작한다 */
+  async joinCluster(): Promise<void> {
+    await this.bus.subscribe(RELAY_CHANNEL, (payload) => this.deliver(payload as Relay));
   }
 
   // ── 연결 ────────────────────────────────────────────────────────────────
@@ -120,13 +192,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const account = await this.auth.resolveSession(sid ? decodeURIComponent(sid) : undefined);
     if (!account) { socket.disconnect(true); return; }
 
-    // 룸 소켓은 계정당 하나 — 마지막 연결이 이긴다(AREA-ROOM §2.2)
-    const prev = this.sockets.get(account.accountId);
-    if (prev && prev.id !== socket.id) {
-      prev.emit('msg', { t: 'notice', level: 'warn', code: 'replaced', text: '다른 곳에서 접속했습니다' } satisfies ServerMessage);
-      prev.disconnect(true);
-    }
     this.sockets.set(account.accountId, socket);
+    // 룸 소켓은 계정당 하나 — 마지막 연결이 이긴다(AREA-ROOM §2.2).
+    // **노드를 건너서도** 그래야 한다. 옛 연결이 다른 노드에 남아 있으면 그 노드가 끊는다.
+    void this.bus.publish(RELAY_CHANNEL, {
+      kind: 'evict', accountId: account.accountId, exceptNodeId: this.nodeId, exceptSocketId: socket.id,
+    } satisfies Relay);
 
     const room = await this.rooms.membershipOf(account.accountId);
     socket.data = { accountId: account.accountId, nickname: account.nickname, roomId: room?.roomId ?? null, bucket: new TokenBucket() } satisfies SocketData;
@@ -134,10 +205,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       await this.rooms.setConnected(account.accountId, true);
       const fresh = (await this.rooms.get(room.roomId))!;
       this.emit(socket, { t: 'room:state', room: this.rooms.toRoomView(fresh) });
-      const m = this.matches.matchOfRoom(room.roomId);
-      if (m) {
-        await this.matches.handleConnection(m, account.accountId, true);
-        this.emit(socket, this.matches.snapshotFor(m, account.accountId));
+      if (fresh.currentMatchId) {
+        // 판을 가진 노드가 스냅샷을 만들어 이 계정에게 보낸다 — 여기서는 만들 수 없다.
+        await this.matches.command(room.roomId, { t: 'connection', accountId: account.accountId, connected: true });
+        await this.matches.command(room.roomId, { t: 'snapshot', accountId: account.accountId });
       }
       this.toRoom(room.roomId, { t: 'room:state', room: this.rooms.toRoomView(fresh) });
     }
@@ -150,8 +221,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.lobbyWatchers.delete(socket.id);
     const room = await this.rooms.setConnected(d.accountId, false);
     if (room) {
-      const m = this.matches.matchOfRoom(room.roomId);
-      if (m) await this.matches.handleConnection(m, d.accountId, false);
+      if (room.currentMatchId) await this.matches.command(room.roomId, { t: 'connection', accountId: d.accountId, connected: false });
       this.toRoom(room.roomId, { t: 'room:state', room: this.rooms.toRoomView(room) });
     }
   }
@@ -168,30 +238,27 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   /**
-   * 재촉 알림의 마지막 시각 (READY §5.1 — 30초에 한 번).
+   * 재촉 알림의 창 (READY §5.1 — 30초에 한 번).
    *
-   * 룸 상태에 넣지 않는다. 남용 방지용 창이라 서버가 재시작되면 풀려도 그만이고,
-   * 룸 스냅샷에 넣으면 직렬화와 복구 경로가 이 값 때문에 늘어난다.
+   * 룸 상태에 넣지 않는다 — 룸 스냅샷에 넣으면 직렬화와 복구 경로가 이 값 때문에 늘어난다.
+   * 대신 상태 저장소에 **수명이 달린 키 하나**로 둔다. 프로세스 안 Map 이었을 때는
+   * 노드를 바꿔 가며 누르면 창이 무의미해졌다 — 남용 방지가 노드 수만큼 헐거워지는 셈이다.
+   * 키가 있으면 아직 창 안이고, 없으면 지난 것이다. 시각을 비교하지 않는다.
    */
-  private readonly lastNudgeMs = new Map<string, number>();
   private static readonly NUDGE_INTERVAL_MS = 30_000;
+  private static nudgeKey(roomId: string): string { return `nudge:${roomId}`; }
 
   private async dispatch(socket: Socket, d: SocketData, msg: ClientMessage): Promise<void> {
-    const match = d.roomId ? this.matches.matchOfRoom(d.roomId) : null;
+    // 판을 건드리는 것은 전부 `command` 를 지난다. 이 노드가 그 판을 가졌으면 그 자리에서,
+    // 아니면 가진 노드로 건너간다 — 부르는 쪽은 어느 쪽인지 알 필요가 없다.
+    const room = d.roomId;
     switch (msg.t) {
-      case 'cell:set': if (match) await this.matches.handleCell(match, d.accountId, msg.index, msg.value); return;
-      case 'cursor:set': if (match) await this.matches.handleCursor(match, d.accountId, msg.index); return;
-      case 'cell:history': {
-        // 협동만이다 — 레이스는 보드가 각자의 것이라 "남이 채운 칸" 이 없다(COOP §7)
-        if (!match || match.mode !== 'coop' || !match.team) return;
-        const entries = (match.team.changeLog.get(msg.index) ?? [])
-          .map((e) => ({ value: e.value, accountId: e.by, atEpochMs: e.atMs }));
-        this.emit(socket, { t: 'cell:history', index: msg.index, entries });
-        return;
-      }
-      case 'submit:request': if (match) await this.matches.handleSubmit(match, d.accountId); return;
-      case 'submit:cancel': if (match) await this.matches.handleCancel(match, d.accountId); return;
-      case 'hint:request': if (match) await this.matches.handleHint(match, d.accountId); return;
+      case 'cell:set': if (room) await this.matches.command(room, { t: 'cell', accountId: d.accountId, index: msg.index, value: msg.value }); return;
+      case 'cursor:set': if (room) await this.matches.command(room, { t: 'cursor', accountId: d.accountId, index: msg.index }); return;
+      case 'cell:history': if (room) await this.matches.command(room, { t: 'history', accountId: d.accountId, index: msg.index }); return;
+      case 'submit:request': if (room) await this.matches.command(room, { t: 'submit', accountId: d.accountId }); return;
+      case 'submit:cancel': if (room) await this.matches.command(room, { t: 'cancel', accountId: d.accountId }); return;
+      case 'hint:request': if (room) await this.matches.command(room, { t: 'hint', accountId: d.accountId }); return;
       case 'ready:toggle': { const r = await this.rooms.toggleReady(d.accountId); this.pushRoom(r); return; }
       case 'ready:nudge': {
         const room = await this.rooms.membershipOf(d.accountId);
@@ -200,10 +267,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           this.emit(socket, { t: 'notice', level: 'warn', code: 'not-host', text: '호스트만 재촉할 수 있습니다' });
           return;
         }
-        const now = Date.now();
-        const last = this.lastNudgeMs.get(room.roomId) ?? 0;
-        const leftSec = Math.ceil((RealtimeGateway.NUDGE_INTERVAL_MS - (now - last)) / 1000);
-        if (leftSec > 0) {
+        const openedAt = await this.state.get<number>(RealtimeGateway.nudgeKey(room.roomId));
+        if (openedAt !== null) {
+          const leftSec = Math.max(1, Math.ceil((RealtimeGateway.NUDGE_INTERVAL_MS - (Date.now() - openedAt)) / 1000));
           this.emit(socket, { t: 'notice', level: 'warn', code: 'nudge-cooldown', text: `${leftSec}초 뒤에 다시 재촉할 수 있습니다` });
           return;
         }
@@ -212,11 +278,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           this.emit(socket, { t: 'notice', level: 'info', code: 'nudge-none', text: '재촉할 사람이 없습니다' });
           return;
         }
-        this.lastNudgeMs.set(room.roomId, now);
+        await this.state.set(RealtimeGateway.nudgeKey(room.roomId), Date.now(), RealtimeGateway.NUDGE_INTERVAL_MS);
         const host = room.members.find((m) => m.accountId === room.hostAccountId);
+        // 대상이 다른 노드에 붙어 있을 수 있다 — 계정 중계로 보낸다
         for (const m of targets) {
-          const s = this.sockets.get(m.accountId);
-          if (s) this.emit(s, { t: 'notice', level: 'info', code: 'ready-nudge', text: `${host?.nickname ?? '호스트'}님이 준비를 기다리고 있습니다` });
+          this.toAccount(m.accountId, { t: 'notice', level: 'info', code: 'ready-nudge', text: `${host?.nickname ?? '호스트'}님이 준비를 기다리고 있습니다` });
         }
         this.emit(socket, { t: 'notice', level: 'info', code: 'nudge-sent', text: `${targets.length}명에게 알렸습니다` });
         return;
@@ -238,7 +304,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       case 'room:leave': await this.leave(socket, d); return;
       case 'room:kick': {
         const room = await this.rooms.kick(d.accountId, msg.accountId);
-        if (match) await this.matches.handleKick(match, msg.accountId);
+        if (room.currentMatchId) await this.matches.command(room.roomId, { t: 'kick', accountId: msg.accountId });
         const target = this.sockets.get(msg.accountId);
         if (target) { (target.data as SocketData).roomId = null; this.emit(target, { t: 'room:closed', reason: '호스트가 내보냈습니다' }); }
         await this.afterMembershipChange(room);
@@ -247,7 +313,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       case 'host:delegate': { const room = await this.rooms.delegate(d.accountId, msg.accountId); this.pushRoom(room); return; }
       case 'room:close': {
         const roomId = await this.rooms.closeByHost(d.accountId);
-        this.lastNudgeMs.delete(roomId);
+        await this.state.del(RealtimeGateway.nudgeKey(roomId));
         this.toRoom(roomId, { t: 'room:closed', reason: '호스트가 룸을 닫았습니다' });
         for (const s of this.server.sockets.sockets.values()) if ((s.data as SocketData)?.roomId === roomId) (s.data as SocketData).roomId = null;
         return;
@@ -260,6 +326,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
           if (!fresh) return null;
           if (fresh.hostAccountId !== d.accountId) throw new RoomError('not-host', '호스트만 다시 시작할 수 있습니다');
           fresh.phase = 'waiting';
+          fresh.currentMatchEndsAtMs = null;
           for (const m of fresh.members) m.ready = false;   // 룰은 남고 준비는 풀린다(§1.3)
           fresh.leftDuringMatch = [];
           fresh.lastActivityAtMs = Date.now();
@@ -282,13 +349,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   /** 진행 중 멤버십이 0이 되면 **먼저 판을 끝낸다**(ROOMLIFE §7.1) */
   private async afterMembershipChange(room: RoomState): Promise<void> {
     if (room.phase !== 'playing' || room.members.length > 0) return;
-    const m = this.matches.matchOfRoom(room.roomId);
-    if (m) await this.matches.finish(m, 'membership-empty', Date.now());
+    await this.matches.command(room.roomId, { t: 'finish', reason: 'membership-empty' });
   }
 
   private async leave(socket: Socket, d: SocketData): Promise<void> {
-    const match = d.roomId ? this.matches.matchOfRoom(d.roomId) : null;
-    if (match) await this.matches.handleLeave(match, d.accountId);
+    if (d.roomId) await this.matches.command(d.roomId, { t: 'leave', accountId: d.accountId });
     const { room } = await this.rooms.leave(d.accountId);
     (socket.data as SocketData).roomId = null;
     this.emit(socket, { t: 'room:closed', reason: '룸에서 나왔습니다' });
@@ -345,7 +410,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const matchId = `mt_${randomUUID().slice(0, 8)}`;
       room.phase = 'playing';
       room.currentMatchId = matchId;
-      this.lastNudgeMs.delete(room.roomId);   // 재촉은 대기 구간의 장치다
+      // 로비의 남은 시간은 판을 갖지 않은 노드도 그려야 한다 — 룸에 적어 둔다.
+      // 실제 판은 몇 밀리초 뒤에 열리므로 그만큼의 오차가 있고, 초 단위 표시에는 묻힌다.
+      room.currentMatchEndsAtMs = Date.now() + rules.limitSec * 1000;
+      await this.state.del(RealtimeGateway.nudgeKey(room.roomId));   // 재촉은 대기 구간의 장치다
       room.lastActivityAtMs = Date.now();
       await this.rooms.save(room);
       return { blocked: false as const, room, rules, assignment, rankEligible, matchId };
@@ -374,8 +442,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (this.lobbyWatchers.size === 0) return;
     const rooms = (await this.rooms.listRooms()).filter((r) => r.isPublic);
     const upsert = rooms.map((r) => {
-      const m = this.matches.matchOfRoom(r.roomId);
-      const endsIn = m ? Math.max(0, Math.round((m.endsAtEpochMs - Date.now()) / 1000)) : null;
+      // 판을 가진 노드가 아니어도 그릴 수 있어야 한다 — 룸에 적힌 값을 본다
+      const endsIn = r.currentMatchEndsAtMs === null ? null : Math.max(0, Math.round((r.currentMatchEndsAtMs - Date.now()) / 1000));
       return this.rooms.toLobbyView(r, endsIn);
     });
     for (const s of this.server.sockets.sockets.values()) {
