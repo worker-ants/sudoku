@@ -151,9 +151,12 @@ tr.me td{background:var(--accent-soft)}
 .cell.sel{background:var(--accent-soft);box-shadow:inset 0 0 0 2px var(--accent)}
 .cell.bad{color:var(--violation);background:var(--danger-soft)}
 .cell.hint{box-shadow:inset 0 0 0 2px var(--hint);background:var(--hint-soft)}
-/* 덮어쓰기 확인이 걸린 칸 — 한 번 더 누르면 적용된다 (COOP §5). 경고색이지만 점선이라
-   위반(bad)이나 힌트와 눈으로 갈린다 — 셋이 같은 자리를 쓰므로 굵기가 아니라 성질로 나눈다 */
-.cell.armed{box-shadow:inset 0 0 0 2px var(--warn);background:var(--warn-soft)}
+/* 덮어쓰기 확인이 걸린 칸이다. 한 번 더 누르면 적용된다 (COOP §5). --warn 은 --hint 와 값이
+   같으므로 선의 성질로 가른다. 힌트는 실선, 여기는 점선이다(DSN-UI §1.2 · §5).
+   box-shadow 로는 점선을 그릴 수 없고 outline 은 포커스 링 자리라 가상 요소에 테두리를 그린다.
+   대기 칸은 대개 선택 칸이기도 하다. 그때는 선택 칸의 강조 테두리를 지우고 점선만 둔다 */
+.cell.armed{box-shadow:none;background:var(--warn-soft)}
+.cell.armed::after{content:"";position:absolute;inset:0;border:2px dashed var(--warn);pointer-events:none}
 .cell.r3{border-top:2px solid var(--rule-strong)}
 .cell.c3{border-left:2px solid var(--rule-strong)}
 .cell:hover:not(:disabled){border-color:transparent;color:var(--entered)}
