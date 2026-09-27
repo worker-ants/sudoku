@@ -670,7 +670,10 @@ function RulesGrid({ r, isHost, patch, nonStandardLimit, limitNotice }: {
       </div>
       <div className="rule-cell"><span className="k">제약 위반 표시</span>
         <Switch label="제약 위반 표시" on={r.violationDisplay === 'show'} disabled={!isHost} onLabel="표시" offLabel="숨김"
-          onToggle={(on) => patch({ violationDisplay: on ? 'show' : 'hide' })} /></div>
+          onToggle={(on) => patch({ violationDisplay: on ? 'show' : 'hide' })} />
+        {/* 제약 위반과 오답을 가르는 줄이다(RULES §5). 이 스위치는 오답을 알려 주지 않는다 */}
+        <p className="muted" style={{ margin: '2px 0 0', lineHeight: 1.45 }}>같은 줄·칸에 같은 숫자를 넣으면 즉시 표시합니다.</p>
+      </div>
       <div className="rule-cell"><span className="k">힌트 허용</span>
         <Switch label="힌트 허용" on={r.hintsAllowed} disabled={!isHost} onLabel="허용" offLabel="비허용"
           onToggle={(on) => patch({ hintsAllowed: on })} /></div>
