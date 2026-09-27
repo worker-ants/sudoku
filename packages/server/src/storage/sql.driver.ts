@@ -1,5 +1,5 @@
 /**
- * SQL 드라이버 (ADR-STACK S2 · §6.1)
+ * SQL 드라이버 (ADR-STACK S2 · §6.2)
  *
  * 영구 저장소의 SQL 은 한 벌뿐이고, 붙는 서버만 두 가지다.
  *   PgDriver      운영·통합 테스트 — 진짜 PostgreSQL 서버
