@@ -55,8 +55,9 @@ describe('순위와 rankPoint (§4.2)', () => {
 
 describe('팀 포인트 (§7.2 · D7)', () => {
   const limit = 1500, blanks = 54;
-  it('클램프가 물리는 경우는 §5.1의 예외 하나뿐이다 — 만료 시각 완주', () => {
-    // D10 이후 조정 완주 시각이 제한 시간을 넘을 수 없으므로 여기가 유일한 경계다.
+  it('§5.1 의 예외로 만료 시각에 완주로 인정되면 식이 50이라 하한 51이 물린다', () => {
+    // D10 이후 조정 완주 시각이 제한 시간을 넘을 수 없다. 하한이 물리는 경우는 이 예외와
+    // 제한 시간의 마지막 1% 둘이다(§7.2.1). 마지막 1% 는 아래 경계 시험에서 본다.
     expect(teamPoint({ finished: true, adjustedFinishSec: limit, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
   });
   it('미완주 최고점(53/54)은 49점이라 그 완주를 앞지르지 못한다', () => {
@@ -64,13 +65,22 @@ describe('팀 포인트 (§7.2 · D7)', () => {
     expect(q).toBe(49);
     expect(q).toBeLessThan(51);
   });
-  it('클램프는 원식이 51 미만을 내는 지점부터 물린다 — 제한 시간보다 조금 앞이다', () => {
-    // §7.2.1 의 경계표: 1470초는 식이 그대로 51, 1485초는 식이 50이라 하한이 물린다.
+  it('하한은 식이 51 미만을 내는 지점부터 물린다. 제한 시간보다 조금 앞이다', () => {
+    // §7.2.1 의 경계표: 1470초는 식이 그대로 51이다. 1485초는 50 × 15/1500 = 0.5 를 올려
+    // 식이 그대로 51이고 하한은 물리지 않는다. 하한은 1486초부터 물린다.
+    // 1470 · 1485 · 1486초 모두 결과가 51이라 결과만으로는 식과 하한을 가를 수 없다. 반올림 방식은
+    // 아래 '반올림은 0.5 를 올린다' 시험이 고정한다.
     expect(teamPoint({ finished: true, adjustedFinishSec: 1470, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
     expect(teamPoint({ finished: true, adjustedFinishSec: 1485, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
   });
   it('제출 없이 만료 시각에 완주 인정되면 경계에서 51이다', () => {
     expect(teamPoint({ finished: true, adjustedFinishSec: limit, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
+  });
+  it('반올림은 0.5 를 올린다(§7.2). 1425초는 식이 50 + round(2.5) = 53', () => {
+    // 1485초(식 51)와 1486초(식 50)를 가르는 규칙이 이것이다. 반올림을 짝수 쪽이나 내림으로
+    // 바꾸면 이 판은 52가 되어 이 시험이 실패한다. 경계 두 칸은 하한 때문에 결과가 같아
+    // 그 변화를 잡지 못한다.
+    expect(teamPoint({ finished: true, adjustedFinishSec: 1425, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(53);
   });
   it('절반에 완주하면 75점', () => {
     expect(teamPoint({ finished: true, adjustedFinishSec: 750, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(75);
@@ -78,9 +88,9 @@ describe('팀 포인트 (§7.2 · D7)', () => {
   it('여유가 있으면 클램프가 물지 않고 원식이 그대로 나온다', () => {
     expect(teamPoint({ finished: true, adjustedFinishSec: 1000, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(67);
   });
-  it('경계 직전에도 클램프가 문다 — 원식이 50으로 반올림되기 때문이다', () => {
-    // §7.2.1 은 "조정 시각 ≥ 제한 시간일 때뿐"이라고 적었지만, 반올림 탓에 그 직전부터 문다.
-    // 규정이 지키려는 것(완주 ≥ 51)은 그대로이고, 물리는 구간이 조금 더 넓을 뿐이다.
+  it('제한 시간의 마지막 1% 에 통과한 제출도 하한이 물린다. 식이 50으로 반올림되기 때문이다', () => {
+    // 1500초 판이면 1486~1499초다(§7.2.1 의 두 번째 경우). 1486초는 50 × 14/1500 ≈ 0.47 이라
+    // 식이 50이고 하한이 처음 물린다.
     expect(teamPoint({ finished: true, adjustedFinishSec: 1499, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
     expect(teamPoint({ finished: true, adjustedFinishSec: 1486, limitSec: limit, correctCells: 54, blankCells: blanks })).toBe(51);
   });
