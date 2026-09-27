@@ -532,6 +532,7 @@ function Lobby({ lobby, onEnter, say }: { lobby: LobbyRoomView[]; onEnter: (r: R
                   <span className="num" style={{ fontSize: 13 }}>
                     {r.count} <span style={{ color: 'var(--ink3)' }}>/ {r.capacity}</span>
                   </span>
+                  {/* 카드마다 주 동작을 하나씩 둔다. §1.2 강조색 규칙과 §4.1 "주 동작 하나"의 예외다(DSN-UI · 2026-09-27) */}
                   <button className={playing || full ? 'sm' : 'sm primary'} disabled={playing || full}
                     onClick={() => join(r.code)}>참가</button>
                 </div>
@@ -780,7 +781,7 @@ function ProgressPanel({ progress, match, me, isHost }: {
               : !p.connected ? <span className="badge warn">연결 끊김</span>
               : p.finished ? <span className="badge ok">완주</span>
               : <>
-                  <span className="bar"><i style={{ width: `${Math.min(100, (p.filled / blanks) * 100)}%` }} /></span>
+                  <span className={`bar${p.accountId === me.accountId ? ' mine' : ''}`}><i style={{ width: `${Math.min(100, (p.filled / blanks) * 100)}%` }} /></span>
                   <span className="num" style={{ fontSize: 12.5 }}>{p.filled}칸</span>
                 </>}
             {isHost && !p.left && p.accountId !== me.accountId
@@ -793,7 +794,7 @@ function ProgressPanel({ progress, match, me, isHost }: {
             <div className="progress-row">
               <span className="nm"><strong>팀</strong></span>
               {progress.team.finished ? <span className="badge ok">완주</span> : <>
-                <span className="bar"><i style={{ width: `${Math.min(100, (progress.team.filled / blanks) * 100)}%` }} /></span>
+                <span className="bar mine"><i style={{ width: `${Math.min(100, (progress.team.filled / blanks) * 100)}%` }} /></span>
                 <span className="num" style={{ fontSize: 12.5 }}>{progress.team.filled}칸</span>
               </>}
             </div>
@@ -907,7 +908,7 @@ function Rankings({ me }: { me: Me }) {
 function RankRow({ i, names, mine, value }: { i: number; names: string[]; mine: boolean; value: string }) {
   return (
     <div className={`progress-row${mine ? ' me' : ''}`}>
-      <span className={`rk${i === 0 ? ' first' : ''}`}>{i + 1}</span>
+      <span className="rk">{i + 1}</span>
       <span className="nm">{names.join(', ')}{mine && <span className="muted"> (나)</span>}</span>
       <span className="num" style={{ fontWeight: 600 }}>{value}</span>
     </div>
@@ -918,7 +919,7 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
   const mine = ended.boards.find((b) => b.accountId === me.accountId)?.cells ?? [];
   const reason = { 'all-finished': '전원 완주', 'time-expired': '제한 시간 만료', 'membership-empty': '남은 참가자 없음' }[ended.endReason];
   return (
-    <div className="card col" style={{ marginBottom: 20, borderColor: 'var(--accent)' }}>
+    <div className="card col" style={{ marginBottom: 20, borderColor: 'var(--rule-strong)' }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>결과 — {reason}</h2>
         <div className="row">
@@ -941,7 +942,7 @@ function Result({ ended, me, onClose, isHost }: { ended: MatchEnded; me: Me; onC
         <tbody>
           {ended.participants.map((p) => (
             <tr key={p.accountId} className={p.accountId === me.accountId ? 'me' : undefined}>
-              {ended.mode === 'race' && <td><span className={`rk${p.rank === 1 ? ' first' : ''}`}>{p.rank}</span></td>}
+              {ended.mode === 'race' && <td><span className="rk">{p.rank}</span></td>}
               <td>{p.nickname}{p.left && <span className="badge no" style={{ marginLeft: 6 }}>{p.kicked ? '강퇴됨' : '이탈'}</span>}</td>
               <td>{p.finished ? <span style={{ color: 'var(--good)' }}>✓</span> : <span style={{ color: 'var(--ink3)' }}>—</span>}</td>
               <td className="n">{p.adjustedFinishSec !== null ? fmtSec(p.adjustedFinishSec) : '—'}</td>

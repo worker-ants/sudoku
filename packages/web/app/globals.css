@@ -5,6 +5,7 @@
  *   ① 격자가 레이아웃 규칙이다 — 1px 헤어라인으로 안을 나누고, 2px 룰로 구역을 묶는다.
  *      보드 안에서도 칸 사이는 헤어라인, 3×3 박스 사이는 룰이다. 라운드는 최대 3px.
  *   ② 색은 한 가지 일만 한다 — 강조(--accent)는 "지금 내 것"에만. 상태는 good·warn·danger 가 맡는다.
+ *      예외는 랭크 배지와 로비 카드의 참가 둘이다(DSN-UI §1.2).
  *   ③ 숫자에 전용 서체를 준다 — 보드·타이머·순위·포인트는 Archivo, 본문은 IBM Plex Sans KR.
  *
  * 테마는 세 상태다 (ADR-STACK §4.5 · S5).
@@ -135,7 +136,6 @@ tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right;font-family:var(--f-data);font-variant-numeric:tabular-nums}
 tr.me td{background:var(--accent-soft)}
 .rk{font-family:var(--f-data);font-weight:700;font-size:15px}
-.rk.first{color:var(--accent)}
 
 /* ── 보드 ───────────────────────────────────────────────────────────────── */
 /* 칸 사이는 헤어라인(--rule), 3×3 박스 사이는 룰(--rule-strong). 두 굵기가 실제로 갈린다. */
@@ -185,7 +185,9 @@ tr.me td{background:var(--accent-soft)}
 .progress-row:last-child{border-bottom:0}
 .progress-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .progress-row .bar{width:70px;height:4px;background:var(--sunk);position:relative;flex:none}
-.progress-row .bar i{position:absolute;inset:0 auto 0 0;background:var(--accent);display:block}
+.progress-row .bar i{position:absolute;inset:0 auto 0 0;background:var(--ink3);display:block}
+/* 강조색은 내 막대(레이스)와 우리 팀 막대(협동)에만 쓴다. 남의 막대는 --ink3 (DSN-UI §1.2) */
+.progress-row .bar.mine i{background:var(--accent)}
 .avatar{width:22px;height:22px;border-radius:3px;display:grid;place-items:center;flex:none;
   font-family:var(--f-data);font-size:10px;font-weight:700;color:#fff}
 
@@ -226,6 +228,8 @@ tr.me td{background:var(--accent-soft)}
   background:#fff;transition:left .15s}
 .switch[aria-checked="true"]{color:var(--ink)}
 .switch[aria-checked="true"] i{background:var(--accent)}
+/* 비활성이면 내가 고른 값이 아니다(호스트가 아닌 사람이 보는 룸 룰). 강조색 대신 --ink2 (DSN-UI §1.2) */
+.switch[aria-checked="true"]:disabled i{background:var(--ink2)}
 .switch[aria-checked="true"] i::after{left:17px}
 
 /* ── 3열 헤어라인 격자 — 랭킹의 세 축 ───────────────────────────────────── */
@@ -288,6 +292,7 @@ button.ghost[aria-expanded="true"]{background:var(--sunk);color:var(--ink)}
 .seg button{flex:1;border:0;border-radius:0;background:transparent;color:var(--ink2);padding:7px 0;font-size:13px}
 .seg button:hover:not(:disabled){border:0;color:var(--accent)}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.seg button[aria-pressed="true"]:disabled{background:var(--ink2);color:var(--surface)}
 /* 호버 규칙(특이도 0,3,1)이 선택 상태를 이겨 글자가 배경색과 같아지던 것을 막는다 */
 .seg button[aria-pressed="true"]:hover:not(:disabled){color:var(--accent-ink)}
 .field{display:flex;flex-direction:column;gap:5px}
