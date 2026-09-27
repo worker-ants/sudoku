@@ -60,8 +60,11 @@ export function judge(participants: Judgeable[]): Judged[] {
 
 /**
  * 팀 포인트 (§7.2 · D7)
- * 완주 구간의 하한 51은 페널티가 조정 완주 시각을 제한 시간 밖으로 밀어도
- * 완주가 미완주 아래로 내려가지 않게 한다.
+ * 완주 구간의 하한 51은 완주가 미완주 최고점(50)보다 늘 높게 한다. D10 이후 하한이
+ * 물리는 경우는 둘이다. §5.1 의 예외로 만료 시각에 완주로 인정된 판과 제한 시간의
+ * 마지막 1% 안에 통과한 제출이다. 두 경우 모두 식이 50을 낸다(§7.2.1).
+ * 스펙의 round 는 Math.round 라 0.5 를 올린다(§7.2). 1500초 판의 1485초는 식이 그대로
+ * 51이고 하한은 1486초부터 물린다.
  */
 export function teamPoint(args: {
   finished: boolean; adjustedFinishSec: number | null; limitSec: number;
